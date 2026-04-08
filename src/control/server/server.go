@@ -49,6 +49,22 @@ func NewHttpServer() *HttpServer {
 	}
 }
 
+// ReturnResponse is a helper function to return a Response from a HandlerFunc.
+func ReturnResponse(statusCode int, body ...any) (Response, error) {
+	r := Response{StatusCode: statusCode}
+
+	if len(body) > 0 {
+		r.Body = body[0]
+	}
+
+	return r, nil
+}
+
+// ReturnError is a helper function to return an error from a HandlerFunc.
+func ReturnError(err error) (Response, error) {
+	return Response{}, err
+}
+
 // RegisterRoute adds a new endpoint handler for the specified path pattern.
 func (s *HttpServer) RegisterRoute(method HttpMethod, path string, handler HandlerFunc) *HttpServer {
 	s.handler.HandleFunc(fmt.Sprintf("%s %s", method, path), func(w http.ResponseWriter, r *http.Request) {
