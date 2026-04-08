@@ -8,6 +8,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/tntmeijs/invokex/control/server"
 )
 
 type (
@@ -15,6 +17,10 @@ type (
 
 	deleteSourceCodePayload struct {
 		Name string `json:"name"`
+	}
+
+	messageResponseBody struct {
+		Message string `json:"message"`
 	}
 )
 
@@ -33,50 +39,66 @@ var supportedSourceCodeLanguages = []sourceCodeLanguage{
 	sourceCodeLanguageGo,
 }
 
-func uploadSourceCode(w http.ResponseWriter, r *http.Request) {
-	if contentType := r.Header.Get("Content-Type"); !strings.Contains(contentType, "multipart/form-data") {
+func uploadSourceCode(r server.Request) (server.Response, error) {
+	if contentType := r.Raw.Header.Get("Content-Type"); !strings.Contains(contentType, "multipart/form-data") {
 		if len(contentType) == 0 {
 			contentType = "unknown"
 		}
 
-		fmt.Printf("user has not uploaded multipart form data, got: %s\n", contentType)
-		return
+		return server.Response{
+			StatusCode: http.StatusBadRequest,
+			Body:       messageResponseBody{Message: fmt.Sprintf("user has not uploaded multipart form data, got: %s", contentType)},
+		}, nil
 	}
 
-	language := strings.ToUpper(strings.TrimSpace(r.FormValue("sourceCodeLanguage")))
+	language := strings.ToUpper(strings.TrimSpace(r.Raw.FormValue("sourceCodeLanguage")))
 	if len(language) == 0 {
 		fmt.Println("user did not specify the source code language")
-		return
+
+		return server.Response{
+			StatusCode: http.StatusBadRequest,
+			Body:       messageResponseBody{Message: "user did not specify the source code language"},
+		}, nil
 	}
 
 	if !slices.Contains(supportedSourceCodeLanguages, language) {
-		fmt.Printf("source code language %s is not supported\n", language)
-		return
+		return server.Response{
+			StatusCode: http.StatusBadRequest,
+			Body:       messageResponseBody{Message: fmt.Sprintf("source code language %s is not supported", language)},
+		}, nil
 	}
 
 	fmt.Printf("user has uploaded source code of type %s\n", language)
 
-	file, header, err := r.FormFile("sourceCode")
+	file, header, err := r.Raw.FormFile("sourceCode")
 	if err != nil {
-		fmt.Printf("no source code found: %v\n", err)
-		return
+		return server.Response{
+			StatusCode: http.StatusBadRequest,
+			Body:       messageResponseBody{Message: fmt.Sprintf("no source code found: %v", err)},
+		}, nil
 	}
 
 	if header.Size > maxSourceCodeSize {
-		fmt.Printf("source code package is too big, max size: %dMB\n", maxSourceCodeSize/megabyte)
-		return
+		return server.Response{
+			StatusCode: http.StatusRequestEntityTooLarge,
+			Body:       messageResponseBody{Message: fmt.Sprintf("source code package is too big, max size: %dMB", maxSourceCodeSize/megabyte)},
+		}, nil
 	}
 
 	parts := strings.Split(header.Filename, ".")
 	if len(parts) == 0 {
-		fmt.Println("invalid file - no extension found")
-		return
+		return server.Response{
+			StatusCode: http.StatusBadRequest,
+			Body:       messageResponseBody{Message: "invalid file - no extension found"},
+		}, nil
 	}
 
 	extension := strings.ToLower(parts[len(parts)-1])
 	if extension != sourceCodeFileExtension {
-		fmt.Printf("invalid file extension, expected .%s got .%s\n", sourceCodeFileExtension, extension)
-		return
+		return server.Response{
+			StatusCode: http.StatusBadRequest,
+			Body:       messageResponseBody{Message: fmt.Sprintf("invalid file extension, expected .%s got .%s", sourceCodeFileExtension, extension)},
+		}, nil
 	}
 
 	defer func() {
@@ -94,40 +116,44 @@ func uploadSourceCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != io.EOF {
-		fmt.Printf("failed to read file: %v", err)
-		return
+		return server.Response{}, fmt.Errorf("failed to read file: %v", err)
 	}
 
 	// TODO: generate custom files names and handle conflict resolution gracefully - right now we simply override.
 	if err = os.WriteFile(fmt.Sprintf("%s/%s", sourceCodeDestination, header.Filename), buffer[:header.Size], 0200); err != nil {
-		fmt.Printf("could not create file for source code: %v\n", err)
-		return
+		return server.Response{}, fmt.Errorf("could not create file for source code: %v", err)
 	}
 
-	fmt.Printf("file %s uploaded successfully\n", header.Filename)
+	return server.Response{
+		StatusCode: http.StatusOK,
+		Body:       messageResponseBody{Message: fmt.Sprintf("file %s uploaded successfully", header.Filename)},
+	}, nil
 }
 
-func deleteSourceCode(w http.ResponseWriter, r *http.Request) {
-	if contentType := r.Header.Get("Content-Type"); !strings.Contains(contentType, "application/json") {
+func deleteSourceCode(r server.Request) (server.Response, error) {
+	if contentType := r.Raw.Header.Get("Content-Type"); !strings.Contains(contentType, "application/json") {
 		if len(contentType) == 0 {
 			contentType = "unknown"
 		}
 
-		fmt.Printf("user has not uploaded json data, got: %s\n", contentType)
-		return
+		return server.Response{
+			StatusCode: http.StatusBadRequest,
+			Body:       messageResponseBody{Message: fmt.Sprintf("user has not uploaded json data, got: %s", contentType)},
+		}, nil
 	}
 
 	payload := deleteSourceCodePayload{}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		fmt.Printf("could not decode payload: %v\n", err)
-		return
+	if err := json.NewDecoder(r.Raw.Body).Decode(&payload); err != nil {
+		return server.Response{}, fmt.Errorf("could not decode payload: %v", err)
 	}
 
 	fileName := payload.Name
 
 	if len(fileName) == 0 {
-		fmt.Println("no file name has been specified")
-		return
+		return server.Response{
+			StatusCode: http.StatusBadRequest,
+			Body:       messageResponseBody{Message: "no file name has been specified"},
+		}, nil
 	}
 
 	if !strings.HasSuffix(fileName, ".zip") {
@@ -135,11 +161,14 @@ func deleteSourceCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := os.Remove(fmt.Sprintf("%s/%s", sourceCodeDestination, fileName)); err != nil {
-		fmt.Printf("could not delete file: %v\n", err)
-		return
+		return server.Response{
+			StatusCode: http.StatusNotFound,
+			Body:       messageResponseBody{Message: fmt.Sprintf("no source code with name %s was found", fileName)},
+		}, nil
 	}
 
 	fmt.Printf("deleted file %s\n", fileName)
+	return server.Response{StatusCode: http.StatusNoContent}, nil
 }
 
 func main() {
@@ -148,10 +177,12 @@ func main() {
 		panic(fmt.Sprintf("could not create source code directory: %v", err))
 	}
 
-	http.HandleFunc("POST /api/v1/sourcecode", uploadSourceCode)
-	http.HandleFunc("DELETE /api/v1/sourcecode", deleteSourceCode)
+	err := server.NewHttpServer().
+		RegisterRoute(server.HttpPost, "/api/v1/sourcecode", uploadSourceCode).
+		RegisterRoute(server.HttpDelete, "/api/v1/sourcecode", deleteSourceCode).
+		Run(":8080")
 
-	if err := http.ListenAndServe(":8080", nil); err != http.ErrServerClosed {
-		panic(fmt.Sprintf("server closed unexpectedly: %v", err))
+	if err != nil {
+		panic(fmt.Sprintf("server has closed: %s", err.Error()))
 	}
 }
