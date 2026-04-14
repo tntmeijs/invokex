@@ -10,7 +10,7 @@ vm_name="test_vm"
 log_directory="${repo_root}/.invokex/logs"
 log_file="${log_directory}/firecracker_${vm_name}.log"
 log_level="Debug"
-kernel_boot_args="console=ttyS0 reboot=k panic=1"
+kernel_boot_args="console=ttyS0 reboot=k panic=1 root=/dev/vda rw rootfstype=ext4"
 kernel_image_path="${repo_root}/.invokex/runtimes/alpine/vmlinux"
 kernel_rootfs_path="${repo_root}/.invokex/runtimes/alpine/rootfs.ext4"
 network_interface_id="net1"
@@ -37,7 +37,7 @@ json=$(cat <<-END
                 "drive_id": "rootfs",
                 "path_on_host": "${kernel_rootfs_path}",
                 "is_root_device": true,
-                "is_read_only": true
+                "is_read_only": false
             }
         ],
         "machine-config": {
@@ -69,8 +69,6 @@ echo $json | jq "." > $vmconfig_path
 
 # Race condition: the configuration file might not have been written yet so wait for it.
 while [ ! -f $vmconfig_path ]; do sleep 0.250s; done
-
-echo "CONFIG FILE PATH USED TO START FIRECRACKER: $vmconfig_path"
 
 trap "sudo rm -f ${api_socket}" EXIT
 sudo "${firecracker_dir}/firecracker" --api-sock "${api_socket}" --config-file "${vmconfig_path}" --enable-pci
