@@ -10,9 +10,6 @@ pushd "${repo_root}/submodules/linux"
 rm -rf "${target_dir}"
 mkdir -p "${target_dir}"
 
-# Revert any changes in the Linux submodule so subseqent builds are not accidentally affected.
-trap "git reset --hard" EXIT
-
 arch=$(uname -m)
 
 case $arch in
@@ -21,17 +18,17 @@ case $arch in
   *) echo "Unsupported architecture"; exit 1 ;;
 esac
 
-cp "${repo_root}/config/linux_kernel_${arch}.config" "./.config"
+# Ensure we use the InvokeX configuration.
+rm -f "./.config"
+cp -f "${repo_root}/config/linux_kernel_${arch}.config" "./.config"
 
 make olddefconfig
 
 if [ "$arch" = "x86_64" ]; then
     make -j$(nproc) vmlinux
-
     cp ./vmlinux "${target_dir}/kernel.bin"
 elif [ "$arch" = "aarch64" ]; then
     make -j$(nproc) Image
-
     cp ./arch/arm64/boot/Image "${target_dir}/kernel.bin"
 fi
 
