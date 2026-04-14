@@ -8,8 +8,8 @@ pushd ${repo_root} > /dev/null
 # Fresh firecracker installation if one does not exist yet.
 if [ ! -d "${repo_root}/.invokex/firecracker" ]; then
     echo "Downloading latest Firecracker release..."
-    chmod +x ./scripts/download_firecracker.sh
-    ./scripts/download_firecracker.sh
+    chmod +x "${repo_root}/scripts/download_firecracker.sh"
+    "${repo_root}/scripts/download_firecracker.sh"
 else
     echo "Firecracker already installed - if you would like to install it from scratch, remove the ./.invokex/firecracker directory first."
 fi
@@ -17,10 +17,13 @@ fi
 # Build runtime if it does not exist yet.
 if [ ! -d "${repo_root}/.invokex/runtimes/alpine" ]; then
     echo "Building Alpine Linux runtime..."
-    chmod +x ./scripts/download_alpine_runtime.sh
-    ./scripts/download_alpine_runtime.sh
+    chmod +x "${repo_root}/scripts/download_alpine_runtime.sh"
+    "${repo_root}/scripts/download_alpine_runtime.sh"
 else
     echo "Alpine Linux runtime already built- if you would like to build it from scratch, remove the ./.invokex/runtimes/alpine directory first."
 fi
+
+chmod +x "${repo_root}/scripts/start_firecracker.sh"
+"${repo_root}/scripts/start_firecracker.sh"
 
 popd > /dev/null
