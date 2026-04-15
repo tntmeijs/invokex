@@ -6,9 +6,9 @@ repo_root=$(git rev-parse --show-toplevel)
 target_dir="${repo_root}/.invokex/runtime"
 pushd "${repo_root}/submodules/linux"
 
-# Clear out the old runtime.
-rm -rf "${target_dir}"
-mkdir -p "${target_dir}"
+# Clear out the old kernel.
+rm -f "${target_dir}/kernel.bin"
+mkdir -p $target_dir
 
 arch=$(uname -m)
 

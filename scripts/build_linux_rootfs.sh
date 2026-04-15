@@ -10,6 +10,7 @@ pushd $tmp_working_dir
 
 # Ensure no old rootfs is present anymore.
 rm -f $target_dir/rootfs.ext4
+mkdir -p $target_dir
 
 rootfsName="rootfs"
 mkdir $rootfsName
