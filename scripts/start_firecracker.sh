@@ -12,15 +12,15 @@ log_file="${log_directory}/firecracker_${vm_name}.log"
 log_level="Debug"
 kernel_boot_args="console=ttyS0 reboot=k panic=1"
 kernel_image_path="${repo_root}/.invokex/runtime/kernel.bin"
-kernel_rootfs_path="${repo_root}/.invokex/runtime/rootfs.ext4"
+kernel_rootfs_path="${repo_root}/.invokex/runtime/rootfs_golang_x86_64.ext4"    # for testing purposes, use the golang runtime
 network_interface_id="net1"
 host_dev_name="tap0"
 mac_address="06:00:AC:10:00:02" # 192.168.0.2
 
 mkdir -p $log_directory
 
-ARCH=$(uname -m)
-if [ ${ARCH} = "aarch64" ]; then
+architecture=$(uname -m)
+if [ "${architecture}" = "aarch64" ]; then
     kernel_boot_args="keep_bootcon ${kernel_boot_args}"
 fi
 
