@@ -22,13 +22,13 @@ esac
 rm -f "./.config"
 cp -f "${repo_root}/config/linux_kernel_${arch}.config" "./.config"
 
-make olddefconfig
+make CC=$(which gcc-11) olddefconfig
 
 if [ "$arch" = "x86_64" ]; then
-    make -j$(nproc) vmlinux
+    make CC=$(which gcc-14) -j$(nproc) vmlinux
     cp ./vmlinux "${target_dir}/kernel.bin"
 elif [ "$arch" = "aarch64" ]; then
-    make -j$(nproc) Image
+    make CC=$(which gcc-14) -j$(nproc) Image
     cp ./arch/arm64/boot/Image "${target_dir}/kernel.bin"
 fi
 
