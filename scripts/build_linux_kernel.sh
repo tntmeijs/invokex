@@ -19,7 +19,7 @@ case $arch in
 esac
 
 # Ensure we use the InvokeX configuration.
-rm -f "./.config"
+rm -f "./.config" "./.config.old"
 cp -f "${repo_root}/config/linux_kernel_${arch}.config" "./.config"
 
 make CC=$(which gcc-11) olddefconfig
