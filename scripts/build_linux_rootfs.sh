@@ -65,7 +65,7 @@ build_userspace_init() {
 
     # If the init binary panics, compile it with "-s" to include debug sysbols.
     # By default debug symbols are excluded from the binary to reduce its size.
-    go build -C "${repo_root}/src/init" -o "${working_dir}/rootfs/init" -ldflags "-s"
+    go build -C "${repo_root}/src/harness" -o "${working_dir}/rootfs/init" -ldflags "-s"
     chmod +x "./init"
 
     popd

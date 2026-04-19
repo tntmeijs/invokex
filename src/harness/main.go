@@ -1,4 +1,4 @@
-// The init module is responsible for user-space initialisation when the Linux kernel starts.
+// The harness module is responsible for user-space initialisation when the Linux kernel starts.
 // Rather than starting a new shell, this binary will be invoked and it will act as the
 // entrypoint of InvokeX. Meaning it will act as a harness for InvokeX applications.
 //
