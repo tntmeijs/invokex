@@ -10,7 +10,7 @@ vm_name="test_vm"
 log_directory="${repo_root}/.invokex/logs"
 log_file="${log_directory}/firecracker_${vm_name}.log"
 log_level="Debug"
-kernel_boot_args="console=ttyS0 reboot=k panic=1"
+kernel_boot_args="console=ttyS0 reboot=k panic=1 init=./init"
 kernel_image_path="${repo_root}/.invokex/runtime/kernel.bin"
 kernel_rootfs_path="${repo_root}/.invokex/runtime/rootfs_golang_x86_64.ext4"    # for testing purposes, use the golang runtime
 network_interface_id="net1"

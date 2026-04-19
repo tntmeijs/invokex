@@ -1,9 +1,21 @@
 #!/usr/bin/env bash
 set -e
 
+runtimes=("golang")
+
+if ! [[ ${runtimes[*]} =~ $1 ]]
+then
+    echo "Please use a supported runtime:"
+    echo "  - golang"
+    exit 1
+fi
+
+runtime="$1"
+architecture="$(uname -m)"
+
 # Always run from the repository's root directory.
 repo_root=$(git rev-parse --show-toplevel)
-pushd ${repo_root} > /dev/null
+pushd "${repo_root}" > /dev/null
 
 ### ################### ###
 ### CUSTOM LINUX KERNEL ###
@@ -18,9 +30,9 @@ else
 fi
 
 # Create a rootfs so the kernel can boot.
-if [ ! -f "${repo_root}/.invokex/runtime/rootfs.ext4" ]; then
+if [ ! -f "${repo_root}/.invokex/runtime/rootfs_${runtime}_${architecture}.ext4" ]; then
     chmod +x "${repo_root}/scripts/build_linux_rootfs.sh"
-    "${repo_root}/scripts/build_linux_rootfs.sh"
+    "${repo_root}/scripts/build_linux_rootfs.sh" "${runtime}"
 else
     echo "Custom Linux rootfs already built- if you would like to build it from scratch, manually invoke the ./scripts/build_linux_rootfs.sh script."
 fi
