@@ -49,7 +49,7 @@ build_base_rootfs_structure() {
     pushd "${working_dir}/rootfs"
 
     # Userspace initialisation script.
-    build_userspace_init "${repo_root}" "${working_dir}"
+    build_userspace_init "${repo_root}" "${working_dir}" "${runtime_id}"
 
     # Standard directory structure
     mkdir -p bin sbin etc dev proc sys tmp
@@ -60,12 +60,13 @@ build_base_rootfs_structure() {
 build_userspace_init() {
     local repo_root=$1
     local working_dir=$2
+    local runtime_id=$3
 
     pushd "${working_dir}/rootfs"
 
     # If the init binary panics, compile it with "-s" to include debug sysbols.
     # By default debug symbols are excluded from the binary to reduce its size.
-    go build -C "${repo_root}/src/harness" -o "${working_dir}/rootfs/init" -ldflags "-s"
+    go build -C "${repo_root}/src/harness" -o "${working_dir}/rootfs/init" -ldflags "-s -X 'main.runtime=${runtime_id}'"
     chmod +x "./init"
 
     popd

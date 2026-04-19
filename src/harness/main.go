@@ -16,6 +16,9 @@ import (
 
 const exitCmd = "exit"
 
+// Set at build time using -ldflags.
+var runtime string
+
 func main() {
 	mountKernelFs()
 	entrypoint()
@@ -42,7 +45,7 @@ func mountKernelFs() error {
 }
 
 func entrypoint() {
-	fmt.Println("Welcome to InvokeX - this is where your application would be started.")
+	fmt.Printf("Welcome to InvokeX - this is where your %s application would be started.\n", runtime)
 
 	buf := bufio.NewReader(os.Stdin)
 
