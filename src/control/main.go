@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/tntmeijs/invokex/control/firecracker"
 	"github.com/tntmeijs/invokex/control/server"
 )
 
@@ -21,6 +23,11 @@ type (
 
 	messageResponseBody struct {
 		Message string `json:"message"`
+	}
+
+	controlPlane struct {
+		server  server.HttpServer
+		manager firecracker.FirecrackerManager
 	}
 )
 
@@ -39,7 +46,7 @@ var supportedSourceCodeLanguages = []sourceCodeLanguage{
 	sourceCodeLanguageGo,
 }
 
-func uploadSourceCode(r server.Request) (server.Response, error) {
+func (c *controlPlane) uploadSourceCode(r server.Request) (server.Response, error) {
 	if contentType := r.Raw.Header.Get("Content-Type"); !strings.Contains(contentType, "multipart/form-data") {
 		if len(contentType) == 0 {
 			contentType = "unknown"
@@ -106,7 +113,7 @@ func uploadSourceCode(r server.Request) (server.Response, error) {
 	return server.ReturnResponse(http.StatusOK, messageResponseBody{Message: fmt.Sprintf("file %s uploaded successfully", header.Filename)})
 }
 
-func deleteSourceCode(r server.Request) (server.Response, error) {
+func (c *controlPlane) deleteSourceCode(r server.Request) (server.Response, error) {
 	if contentType := r.Raw.Header.Get("Content-Type"); !strings.Contains(contentType, "application/json") {
 		if len(contentType) == 0 {
 			contentType = "unknown"
@@ -138,18 +145,53 @@ func deleteSourceCode(r server.Request) (server.Response, error) {
 	return server.ReturnResponse(http.StatusNoContent)
 }
 
+func (c *controlPlane) invokeVm(r server.Request) (server.Response, error) {
+	vmId, err := c.manager.InstantiateVm(firecracker.NewRuntime("golang"))
+	if err != nil {
+		return server.ReturnError(err)
+	}
+
+	return server.ReturnResponse(
+		http.StatusOK,
+		struct {
+			VmId string `json:"vmId"`
+		}{VmId: vmId},
+	)
+}
+
 func main() {
 	// Source code will be place here
 	if err := os.MkdirAll(sourceCodeDestination, 0600); err != nil {
 		panic(fmt.Sprintf("could not create source code directory: %v", err))
 	}
 
-	err := server.NewHttpServer().
-		RegisterRoute(server.HttpPost, "/api/v1/sourcecode", uploadSourceCode).
-		RegisterRoute(server.HttpDelete, "/api/v1/sourcecode", deleteSourceCode).
+	firecrackerManager := firecracker.NewManager(firecrackerConfigFromArgs())
+	firecrackerManager.RegisterVmConfig(firecracker.NewGolangConfig(firecracker.LogLevelDebug))
+	firecrackerManager.RegisterVmConfig(firecracker.NewNodeConfig(25, firecracker.LogLevelDebug))
+
+	ctrl := controlPlane{
+		manager: firecrackerManager,
+		server:  *server.NewHttpServer(),
+	}
+
+	err := ctrl.server.
+		RegisterRoute(server.HttpPost, "/api/v1/sourcecode", ctrl.uploadSourceCode).
+		RegisterRoute(server.HttpDelete, "/api/v1/sourcecode", ctrl.deleteSourceCode).
+		RegisterRoute(server.HttpPost, "/api/v1/invoke", ctrl.invokeVm).
 		Run(":8080")
 
 	if err != nil {
 		panic(fmt.Sprintf("server has closed: %s", err.Error()))
 	}
+}
+
+func firecrackerConfigFromArgs() firecracker.FirecrackerConfig {
+	c := firecracker.FirecrackerConfig{}
+
+	flag.StringVar(&c.FirecrackerPath, "bin", "./firecracker", "path to the firecracker binary")
+	flag.StringVar(&c.KernelImagePath, "kernel", "./kernel.bin", "path to the uncompressed linux kernel")
+	flag.StringVar(&c.KernelRootFsPath, "rootfs", "./rootfs.ext4", "path to the root filesystem")
+	flag.Parse()
+
+	return c
 }
