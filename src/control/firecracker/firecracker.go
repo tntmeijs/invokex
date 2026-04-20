@@ -1,8 +1,10 @@
 package firecracker
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,13 +21,17 @@ type (
 	// Runtime is the application type that runs in the microvm.
 	Runtime string
 
+	onVmProcessExit = func(VmId, int)
+
 	VmConfig interface {
 		LogLevel() LogLevel
 		Runtime() Runtime
 	}
 
 	vm struct {
-		cmd *exec.Cmd
+		id     VmId
+		cmd    *exec.Cmd
+		onExit onVmProcessExit
 	}
 
 	FirecrackerConfig struct {
@@ -80,37 +86,26 @@ func (m *FirecrackerManager) RegisterVmConfig(config VmConfig) error {
 	return nil
 }
 
-func (m *FirecrackerManager) newVmId(runtime Runtime) VmId {
-	id := fmt.Sprintf("%s_%s", runtime, uuid.NewString())
-
-	if _, exists := m.activeVms[id]; !exists {
-		return id
-	}
-
-	// Edge case: duplicate UUID was generated so keep trying until an unused UUID is found.
-	return m.newVmId(runtime)
-
-}
-
 func (m *FirecrackerManager) InstantiateVm(runtime Runtime) (VmId, error) {
-	vm := vm{
-		cmd: exec.Command(
-			m.config.FirecrackerPath,
-			fmt.Sprintf(`--api-sock ""`),    // TODO: create socket
-			fmt.Sprintf(`--config-file ""`), // TODO: create config file
-			"--enable-pci",
-		),
-	}
+	vm := m.newVm(runtime, func(vmId VmId, exitCode int) {
+		delete(m.activeVms, vmId)
 
-	if err := vm.cmd.Start(); err != nil {
-		return "", err
-	}
+		if len(m.activeVms) == 0 {
+			fmt.Println("no active virtual machines")
+		} else {
+			fmt.Println("active virtual machines:")
 
-	id := m.newVmId(runtime)
-	m.activeVms[id] = vm
+			for id := range m.activeVms {
+				fmt.Printf("  - %s", id)
+			}
+		}
+	})
 
-	fmt.Printf("instantiated new %s vm: id %s\n", runtime, id)
-	return id, nil
+	vm.Start()
+
+	fmt.Printf("instantiated new %s vm: id %s\n", runtime, vm.id)
+	m.activeVms[vm.id] = vm
+	return vm.id, nil
 }
 
 func (m *FirecrackerManager) KillVm(id VmId) error {
@@ -160,4 +155,56 @@ func (c nodeVmConfig) LogLevel() LogLevel {
 
 func (c nodeVmConfig) Runtime() Runtime {
 	return NewRuntime("node", strconv.Itoa(c.version))
+}
+
+// The newVm method creates a new virtual machine but does not start it yet.
+func (m *FirecrackerManager) newVm(runtime Runtime, onExit onVmProcessExit) vm {
+	var existingIds []VmId
+	for key, _ := range m.activeVms {
+		existingIds = append(existingIds, key)
+	}
+
+	return vm{
+		id: NewVmId(runtime, existingIds...),
+		cmd: exec.Command(
+			m.config.FirecrackerPath,
+			fmt.Sprintf(`--api-sock ""`),    // TODO: create socket
+			fmt.Sprintf(`--config-file ""`), // TODO: create config file
+			"--enable-pci",
+		),
+		onExit: onExit,
+	}
+}
+
+func (vm *vm) Start() {
+	go func() {
+		err := vm.cmd.Run()
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+			fmt.Printf(
+				"vm %s (PID %d) exited with exit code %d and stderr: \"%s\"\n",
+				vm.id,
+				exitErr.Pid(),
+				exitErr.ExitCode(),
+				string(exitErr.Stderr),
+			)
+
+			vm.onExit(vm.id, exitErr.ExitCode())
+		} else {
+			vm.onExit(vm.id, 0)
+		}
+	}()
+}
+
+// NewVmId returns a new VmId based on the runtime.
+// Optionally, existing ids can be passed to ensure uniqueness.
+func NewVmId(runtime Runtime, existingIds ...VmId) VmId {
+	id := fmt.Sprintf("%s_%s", runtime, uuid.NewString())
+
+	if !slices.Contains(existingIds, id) {
+		return id
+	}
+
+	// Edge case: duplicate UUID was generated so keep trying until an unused UUID is found.
+	existingIds = append(existingIds, id)
+	return NewVmId(runtime, existingIds...)
 }
