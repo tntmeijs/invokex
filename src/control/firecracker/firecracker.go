@@ -3,6 +3,7 @@ package firecracker
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -35,9 +36,11 @@ type (
 	}
 
 	FirecrackerConfig struct {
-		FirecrackerPath  string
-		KernelImagePath  string
-		KernelRootFsPath string
+		FirecrackerPath   string
+		KernelImagePath   string
+		KernelRootFsPath  string
+		LogDirectory      string
+		VmConfigDirectory string
 	}
 
 	FirecrackerManager struct {
@@ -87,7 +90,7 @@ func (m *FirecrackerManager) RegisterVmConfig(config VmConfig) error {
 }
 
 func (m *FirecrackerManager) InstantiateVm(runtime Runtime) (VmId, error) {
-	vm := m.newVm(runtime, func(vmId VmId, exitCode int) {
+	vm, err := m.newVm(runtime, func(vmId VmId, exitCode int) {
 		delete(m.activeVms, vmId)
 
 		if len(m.activeVms) == 0 {
@@ -100,6 +103,10 @@ func (m *FirecrackerManager) InstantiateVm(runtime Runtime) (VmId, error) {
 			}
 		}
 	})
+
+	if err != nil {
+		return "", fmt.Errorf("failed to instantiate new vm: %w", err)
+	}
 
 	vm.Start()
 
@@ -158,22 +165,48 @@ func (c nodeVmConfig) Runtime() Runtime {
 }
 
 // The newVm method creates a new virtual machine but does not start it yet.
-func (m *FirecrackerManager) newVm(runtime Runtime, onExit onVmProcessExit) vm {
+func (m *FirecrackerManager) newVm(runtime Runtime, onExit onVmProcessExit) (vm, error) {
 	var existingIds []VmId
 	for key, _ := range m.activeVms {
 		existingIds = append(existingIds, key)
 	}
 
+	// TODO: move this elsewhere and generate new values instead of duplicates - probably store these in the vm structure
+	cfg := CreateDefaultFirecrackerVmConfig(
+		runtime,
+		m.config.KernelImagePath,
+		m.config.KernelRootFsPath,
+		"net1",
+		"06:00:AC:10:00:02",
+		"tap0",
+		m.config.LogDirectory,
+		LogLevelDebug,
+	)
+
+	newVmId := NewVmId(runtime, existingIds...)
+
+	fileName, err := cfg.WriteToDisk(newVmId, m.config.VmConfigDirectory)
+	if err != nil {
+		return vm{}, fmt.Errorf("failed to write vm %s configuration to disk: %w", newVmId, err)
+	}
+
 	return vm{
-		id: NewVmId(runtime, existingIds...),
+		id: newVmId,
 		cmd: exec.Command(
 			m.config.FirecrackerPath,
-			fmt.Sprintf(`--api-sock ""`),    // TODO: create socket
-			fmt.Sprintf(`--config-file ""`), // TODO: create config file
+			fmt.Sprintf(`--api-sock ""`), // TODO: create socket
+			fmt.Sprintf(`--config-file "%s"`, fileName),
 			"--enable-pci",
 		),
-		onExit: onExit,
-	}
+		onExit: func(id VmId, exitCode int) {
+			// Inject ourselves here - once the VM exists, clean up its configuration file.
+			os.Remove(fileName)
+			fmt.Printf("cleanup: %s\n", fileName)
+
+			// End of injection.
+			onExit(id, exitCode)
+		},
+	}, nil
 }
 
 func (vm *vm) Start() {

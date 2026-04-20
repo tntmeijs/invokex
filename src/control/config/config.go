@@ -19,7 +19,9 @@ type (
 	}
 
 	FirecrackerInstance struct {
-		Path string `json:"path"`
+		Path              string `json:"path"`
+		LogDirectory      string `json:"logpath"`
+		VmConfigDirectory string `json:"vmconfigs"`
 	}
 
 	BinaryFile struct {

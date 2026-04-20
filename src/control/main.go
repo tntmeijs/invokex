@@ -181,9 +181,11 @@ func main() {
 	}
 
 	firecrackerManager := firecracker.NewManager(firecracker.FirecrackerConfig{
-		FirecrackerPath:  config.Firecracker.Instance.Path,
-		KernelImagePath:  config.Firecracker.Kernel.Path,
-		KernelRootFsPath: config.Firecracker.RootFilesystem.Path,
+		FirecrackerPath:   config.Firecracker.Instance.Path,
+		KernelImagePath:   config.Firecracker.Kernel.Path,
+		KernelRootFsPath:  config.Firecracker.RootFilesystem.Path,
+		LogDirectory:      config.Firecracker.Instance.LogDirectory,
+		VmConfigDirectory: config.Firecracker.Instance.VmConfigDirectory,
 	})
 
 	firecrackerManager.RegisterVmConfig(firecracker.NewGolangConfig(firecracker.LogLevelDebug))

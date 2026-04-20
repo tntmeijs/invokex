@@ -1,7 +1,9 @@
 {
     "firecracker": {
         "instance": {
-            "path": ".invokex/firecracker/firecracker"
+            "path": ".invokex/firecracker/firecracker",
+            "logpath": ".invokex/logs",
+            "vmconfigs": ".invokex/vmconfigs"
         },
         "kernel": {
             "path": ".invokex/runtime/kernel.bin"

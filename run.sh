@@ -57,6 +57,6 @@ fi
 # Compile, build, and run the control plane with elevated privileges.
 go build -C "${repo_root}/src/control"
 chmod +x "${repo_root}/src/control"
-sudo "${repo_root}/src/control/control"
+"${repo_root}/src/control/control"
 
 popd > /dev/null
