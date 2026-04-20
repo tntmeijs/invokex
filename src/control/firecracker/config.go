@@ -53,6 +53,7 @@ type (
 
 // CreateDefaultFirecrackerVmConfig creates a new FirecrackerVmConfig with sensible defaults.
 func CreateDefaultFirecrackerVmConfig(
+	vmId VmId,
 	runtime Runtime,
 	kernelImagePath, rootFsPath, logPath string,
 	logLevel LogLevel,
@@ -86,7 +87,7 @@ func CreateDefaultFirecrackerVmConfig(
 		},
 		NetworkInterfaces: []NetworkInterface{},
 		Logger: Logger{
-			Path:          logPath,
+			Path:          fmt.Sprintf("%s/%s.log", logPath, vmId),
 			Level:         logLevel,
 			ShowLevel:     true,
 			ShowLogOrigin: true,

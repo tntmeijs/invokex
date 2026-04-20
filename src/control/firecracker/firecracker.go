@@ -172,8 +172,11 @@ func (m *FirecrackerManager) newVm(runtime Runtime, onExit onVmProcessExit) (vm,
 		existingIds = append(existingIds, key)
 	}
 
+	newVmId := NewVmId(runtime, existingIds...)
+
 	// TODO: move this elsewhere and generate new values instead of duplicates - probably store these in the vm structure
 	cfg := CreateDefaultFirecrackerVmConfig(
+		newVmId,
 		runtime,
 		m.config.KernelImagePath,
 		m.config.KernelRootFsPath,
@@ -181,14 +184,15 @@ func (m *FirecrackerManager) newVm(runtime Runtime, onExit onVmProcessExit) (vm,
 		LogLevelDebug,
 	)
 
-	newVmId := NewVmId(runtime, existingIds...)
-
 	fileName, err := cfg.WriteToDisk(newVmId, m.config.VmConfigDirectory)
 	if err != nil {
 		return vm{}, fmt.Errorf("failed to write vm %s configuration to disk: %w", newVmId, err)
 	}
 
 	// TODO: move this elsewhere, should probably have the config create the directory structure on startup
+	os.Mkdir(m.config.LogDirectory, 0755)
+	os.OpenFile(fmt.Sprintf("%s/%s.log", m.config.LogDirectory, newVmId), os.O_RDONLY|os.O_CREATE, 0666)
+
 	_, err = os.Stat(m.config.ApiSocketsDirectory)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
