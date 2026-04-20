@@ -1,0 +1,13 @@
+{
+    "firecracker": {
+        "instance": {
+            "path": ".invokex/firecracker/firecracker"
+        },
+        "kernel": {
+            "path": ".invokex/runtime/kernel.bin"
+        },
+        "rootfs": {
+            "path": ".invokex/runtime/rootfs_golang_x86_64.ext4"
+        }
+    }
+}

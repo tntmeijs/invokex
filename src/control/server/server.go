@@ -106,5 +106,6 @@ func (s *HttpServer) Run(address string) error {
 		Addr:    address,
 	}
 
+	fmt.Printf("server listening on %s\n", address)
 	return instance.ListenAndServe()
 }

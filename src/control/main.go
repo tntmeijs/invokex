@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/tntmeijs/invokex/control/config"
 	"github.com/tntmeijs/invokex/control/firecracker"
 	"github.com/tntmeijs/invokex/control/server"
 )
@@ -159,13 +159,33 @@ func (c *controlPlane) invokeVm(r server.Request) (server.Response, error) {
 	)
 }
 
+func (c *controlPlane) deleteVm(r server.Request) (server.Response, error) {
+	vmId := strings.TrimSpace(r.Raw.PathValue("id"))
+	if len(vmId) == 0 {
+		return server.ReturnResponse(http.StatusBadRequest)
+	}
+
+	if err := c.manager.KillVm(vmId); err != nil {
+		return server.ReturnError(err)
+	}
+
+	return server.ReturnResponse(http.StatusOK)
+}
+
 func main() {
+	config := config.MustLoadFromArgs()
+
 	// Source code will be place here
 	if err := os.MkdirAll(sourceCodeDestination, 0600); err != nil {
 		panic(fmt.Sprintf("could not create source code directory: %v", err))
 	}
 
-	firecrackerManager := firecracker.NewManager(firecrackerConfigFromArgs())
+	firecrackerManager := firecracker.NewManager(firecracker.FirecrackerConfig{
+		FirecrackerPath:  config.Firecracker.Instance.Path,
+		KernelImagePath:  config.Firecracker.Kernel.Path,
+		KernelRootFsPath: config.Firecracker.RootFilesystem.Path,
+	})
+
 	firecrackerManager.RegisterVmConfig(firecracker.NewGolangConfig(firecracker.LogLevelDebug))
 	firecrackerManager.RegisterVmConfig(firecracker.NewNodeConfig(25, firecracker.LogLevelDebug))
 
@@ -177,21 +197,11 @@ func main() {
 	err := ctrl.server.
 		RegisterRoute(server.HttpPost, "/api/v1/sourcecode", ctrl.uploadSourceCode).
 		RegisterRoute(server.HttpDelete, "/api/v1/sourcecode", ctrl.deleteSourceCode).
-		RegisterRoute(server.HttpPost, "/api/v1/invoke", ctrl.invokeVm).
+		RegisterRoute(server.HttpPost, "/api/v1/vm", ctrl.invokeVm).
+		RegisterRoute(server.HttpDelete, "/api/v1/vm/{id}", ctrl.deleteVm).
 		Run(":8080")
 
 	if err != nil {
 		panic(fmt.Sprintf("server has closed: %s", err.Error()))
 	}
-}
-
-func firecrackerConfigFromArgs() firecracker.FirecrackerConfig {
-	c := firecracker.FirecrackerConfig{}
-
-	flag.StringVar(&c.FirecrackerPath, "bin", "./firecracker", "path to the firecracker binary")
-	flag.StringVar(&c.KernelImagePath, "kernel", "./kernel.bin", "path to the uncompressed linux kernel")
-	flag.StringVar(&c.KernelRootFsPath, "rootfs", "./rootfs.ext4", "path to the root filesystem")
-	flag.Parse()
-
-	return c
 }

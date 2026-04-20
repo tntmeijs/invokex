@@ -10,8 +10,8 @@ import (
 )
 
 type (
-	// The vmId is a unique identifier for a microvm.
-	vmId = string
+	// The VmId is a unique identifier for a microvm.
+	VmId = string
 
 	// LogLevel defines Firecracker's logger's verbosity.
 	LogLevel string
@@ -37,7 +37,7 @@ type (
 	FirecrackerManager struct {
 		config    FirecrackerConfig
 		vmConfigs map[Runtime]VmConfig
-		activeVms map[vmId]vm
+		activeVms map[VmId]vm
 	}
 
 	baseVmConfig struct {
@@ -67,7 +67,7 @@ func NewManager(config FirecrackerConfig) FirecrackerManager {
 	return FirecrackerManager{
 		config:    config,
 		vmConfigs: map[Runtime]VmConfig{},
-		activeVms: map[vmId]vm{},
+		activeVms: map[VmId]vm{},
 	}
 }
 
@@ -80,7 +80,7 @@ func (m *FirecrackerManager) RegisterVmConfig(config VmConfig) error {
 	return nil
 }
 
-func (m *FirecrackerManager) newVmId(runtime Runtime) vmId {
+func (m *FirecrackerManager) newVmId(runtime Runtime) VmId {
 	id := fmt.Sprintf("%s_%s", runtime, uuid.NewString())
 
 	if _, exists := m.activeVms[id]; !exists {
@@ -92,7 +92,7 @@ func (m *FirecrackerManager) newVmId(runtime Runtime) vmId {
 
 }
 
-func (m *FirecrackerManager) InstantiateVm(runtime Runtime) (vmId, error) {
+func (m *FirecrackerManager) InstantiateVm(runtime Runtime) (VmId, error) {
 	vm := vm{
 		cmd: exec.Command(
 			m.config.FirecrackerPath,
@@ -108,15 +108,17 @@ func (m *FirecrackerManager) InstantiateVm(runtime Runtime) (vmId, error) {
 
 	id := m.newVmId(runtime)
 	m.activeVms[id] = vm
+
+	fmt.Printf("instantiated new %s vm: id %s\n", runtime, id)
 	return id, nil
 }
 
-func (m *FirecrackerManager) KillVm(id vmId) error {
+func (m *FirecrackerManager) KillVm(id VmId) error {
 	if vm, exists := m.activeVms[id]; exists {
 		return vm.cmd.Process.Kill()
 	}
 
-	return fmt.Errorf(`no microvm with id "%s" found`, id)
+	return fmt.Errorf(`microvm not found: %s`, id)
 }
 
 func NewRuntime(name string, optVersion ...string) Runtime {

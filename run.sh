@@ -50,8 +50,13 @@ else
     echo "Firecracker already installed - if you would like to install it from scratch, remove the ./.invokex/firecracker directory first."
 fi
 
-# Start firecracker.
-chmod +x "${repo_root}/scripts/start_firecracker.sh"
-"${repo_root}/scripts/start_firecracker.sh"
+### ############# ###
+### CONTROL PLANE ###
+### ############# ###
+
+# Compile, build, and run the control plane with elevated privileges.
+go build -C "${repo_root}/src/control"
+chmod +x "${repo_root}/src/control"
+sudo "${repo_root}/src/control/control"
 
 popd > /dev/null
