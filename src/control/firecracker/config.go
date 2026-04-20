@@ -54,7 +54,7 @@ type (
 // CreateDefaultFirecrackerVmConfig creates a new FirecrackerVmConfig with sensible defaults.
 func CreateDefaultFirecrackerVmConfig(
 	runtime Runtime,
-	kernelImagePath, rootFsPath, networkInterfaceId, macAddress, hostDevName, logPath string,
+	kernelImagePath, rootFsPath, logPath string,
 	logLevel LogLevel,
 ) FirecrackerVmConfig {
 	bootArgs := "console=ttyS0 reboot=k panic=1 init=./init"
@@ -84,13 +84,7 @@ func CreateDefaultFirecrackerVmConfig(
 			TrackDirtyPages: false,
 			HugePages:       "None",
 		},
-		NetworkInterfaces: []NetworkInterface{
-			{
-				Id:              networkInterfaceId,
-				GuestMacAddress: macAddress,
-				HostDevName:     hostDevName,
-			},
-		},
+		NetworkInterfaces: []NetworkInterface{},
 		Logger: Logger{
 			Path:          logPath,
 			Level:         logLevel,

@@ -36,11 +36,12 @@ type (
 	}
 
 	FirecrackerConfig struct {
-		FirecrackerPath   string
-		KernelImagePath   string
-		KernelRootFsPath  string
-		LogDirectory      string
-		VmConfigDirectory string
+		FirecrackerPath     string
+		KernelImagePath     string
+		KernelRootFsPath    string
+		LogDirectory        string
+		VmConfigDirectory   string
+		ApiSocketsDirectory string
 	}
 
 	FirecrackerManager struct {
@@ -99,7 +100,7 @@ func (m *FirecrackerManager) InstantiateVm(runtime Runtime) (VmId, error) {
 			fmt.Println("active virtual machines:")
 
 			for id := range m.activeVms {
-				fmt.Printf("  - %s", id)
+				fmt.Printf("  - %s\n", id)
 			}
 		}
 	})
@@ -176,9 +177,6 @@ func (m *FirecrackerManager) newVm(runtime Runtime, onExit onVmProcessExit) (vm,
 		runtime,
 		m.config.KernelImagePath,
 		m.config.KernelRootFsPath,
-		"net1",
-		"06:00:AC:10:00:02",
-		"tap0",
 		m.config.LogDirectory,
 		LogLevelDebug,
 	)
@@ -190,18 +188,35 @@ func (m *FirecrackerManager) newVm(runtime Runtime, onExit onVmProcessExit) (vm,
 		return vm{}, fmt.Errorf("failed to write vm %s configuration to disk: %w", newVmId, err)
 	}
 
+	// TODO: move this elsewhere, should probably have the config create the directory structure on startup
+	_, err = os.Stat(m.config.ApiSocketsDirectory)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return vm{}, fmt.Errorf("failed to check if firecracker vm configuration directory exists: %w", err)
+		}
+
+		if err = os.MkdirAll(m.config.ApiSocketsDirectory, 0755); err != nil {
+			return vm{}, fmt.Errorf("failed to create firecracker vm configuration directory: %w", err)
+		}
+	}
+
+	socketName := fmt.Sprintf("%s/%s.socket", m.config.ApiSocketsDirectory, newVmId)
+
 	return vm{
 		id: newVmId,
 		cmd: exec.Command(
 			m.config.FirecrackerPath,
-			fmt.Sprintf(`--api-sock ""`), // TODO: create socket
-			fmt.Sprintf(`--config-file "%s"`, fileName),
+			"--api-sock", socketName,
+			"--config-file", fileName,
 			"--enable-pci",
 		),
 		onExit: func(id VmId, exitCode int) {
-			// Inject ourselves here - once the VM exists, clean up its configuration file.
+			// Inject ourselves here - once the VM exists, clean up its configuration file and socket.
 			os.Remove(fileName)
 			fmt.Printf("cleanup: %s\n", fileName)
+
+			os.Remove(socketName)
+			fmt.Printf("cleanup: %s\n", socketName)
 
 			// End of injection.
 			onExit(id, exitCode)

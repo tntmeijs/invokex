@@ -173,6 +173,7 @@ func (c *controlPlane) deleteVm(r server.Request) (server.Response, error) {
 }
 
 func main() {
+	// TODO: wrap application with a signal listener so we can clean up any pending VMs when we receive SIGTERM.
 	config := config.MustLoadFromArgs()
 
 	// Source code will be place here
@@ -181,11 +182,12 @@ func main() {
 	}
 
 	firecrackerManager := firecracker.NewManager(firecracker.FirecrackerConfig{
-		FirecrackerPath:   config.Firecracker.Instance.Path,
-		KernelImagePath:   config.Firecracker.Kernel.Path,
-		KernelRootFsPath:  config.Firecracker.RootFilesystem.Path,
-		LogDirectory:      config.Firecracker.Instance.LogDirectory,
-		VmConfigDirectory: config.Firecracker.Instance.VmConfigDirectory,
+		FirecrackerPath:     config.Firecracker.Instance.Path,
+		KernelImagePath:     config.Firecracker.Kernel.Path,
+		KernelRootFsPath:    config.Firecracker.RootFilesystem.Path,
+		LogDirectory:        config.Firecracker.Instance.LogDirectory,
+		VmConfigDirectory:   config.Firecracker.Instance.VmConfigDirectory,
+		ApiSocketsDirectory: config.Firecracker.Instance.ApiSocketsDirectory,
 	})
 
 	firecrackerManager.RegisterVmConfig(firecracker.NewGolangConfig(firecracker.LogLevelDebug))
