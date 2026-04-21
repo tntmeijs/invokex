@@ -185,9 +185,9 @@ func main() {
 		FirecrackerPath:     config.Firecracker.Instance.Path,
 		KernelImagePath:     config.Firecracker.Kernel.Path,
 		KernelRootFsPath:    config.Firecracker.RootFilesystem.Path,
-		LogDirectory:        config.Firecracker.Instance.LogDirectory,
-		VmConfigDirectory:   config.Firecracker.Instance.VmConfigDirectory,
-		ApiSocketsDirectory: config.Firecracker.Instance.ApiSocketsDirectory,
+		LogDirectory:        config.Firecracker.Directories.FirecrackerLogs,
+		VmConfigDirectory:   config.Firecracker.Directories.VmConfigurations,
+		ApiSocketsDirectory: config.Firecracker.Directories.ApiSockets,
 	})
 
 	firecrackerManager.RegisterVmConfig(firecracker.NewGolangConfig(firecracker.LogLevelDebug))

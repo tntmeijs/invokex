@@ -13,20 +13,20 @@ type (
 	}
 
 	Firecracker struct {
-		Instance       FirecrackerInstance `json:"instance"`
-		Kernel         BinaryFile          `json:"kernel"`
-		RootFilesystem BinaryFile          `json:"rootfs"`
-	}
-
-	FirecrackerInstance struct {
-		Path                string `json:"path"`
-		LogDirectory        string `json:"logpath"`
-		VmConfigDirectory   string `json:"vmconfigs"`
-		ApiSocketsDirectory string `json:"apisockets"`
+		Instance       BinaryFile  `json:"instance"`
+		Kernel         BinaryFile  `json:"kernel"`
+		RootFilesystem BinaryFile  `json:"rootfs"`
+		Directories    Directories `json:"directories"`
 	}
 
 	BinaryFile struct {
 		Path string `json:"path"`
+	}
+
+	Directories struct {
+		FirecrackerLogs  string `json:"firecrackerlogs"`
+		VmConfigurations string `json:"vmconfigs"`
+		ApiSockets       string `json:"apisockets"`
 	}
 )
 
