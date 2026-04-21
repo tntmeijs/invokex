@@ -1,10 +1,7 @@
 package firecracker
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,17 +19,9 @@ type (
 	// Runtime is the application type that runs in the microvm.
 	Runtime string
 
-	onVmProcessExit = func(VmId, int)
-
 	VmConfig interface {
 		LogLevel() LogLevel
 		Runtime() Runtime
-	}
-
-	vm struct {
-		id     VmId
-		cmd    *exec.Cmd
-		onExit onVmProcessExit
 	}
 
 	FirecrackerConfig struct {
@@ -109,7 +98,7 @@ func (m *FirecrackerManager) InstantiateVm(runtime Runtime) (VmId, error) {
 		return "", fmt.Errorf("failed to instantiate new vm: %w", err)
 	}
 
-	vm.Start()
+	vm.start()
 
 	fmt.Printf("instantiated new %s vm: id %s\n", runtime, vm.id)
 	m.activeVms[vm.id] = vm
@@ -173,78 +162,16 @@ func (m *FirecrackerManager) newVm(runtime Runtime, onExit onVmProcessExit) (vm,
 	}
 
 	newVmId := NewVmId(runtime, existingIds...)
-
-	// TODO: move this elsewhere and generate new values instead of duplicates - probably store these in the vm structure
-	cfg := CreateDefaultFirecrackerVmConfig(
+	return newVm(
 		newVmId,
-		runtime,
+		m.config.FirecrackerPath,
+		m.config.VmConfigDirectory,
+		m.config.ApiSocketsDirectory,
 		m.config.KernelImagePath,
 		m.config.KernelRootFsPath,
 		m.config.LogDirectory,
-		LogLevelDebug,
+		onExit,
 	)
-
-	fileName, err := cfg.WriteToDisk(newVmId, m.config.VmConfigDirectory)
-	if err != nil {
-		return vm{}, fmt.Errorf("failed to write vm %s configuration to disk: %w", newVmId, err)
-	}
-
-	// TODO: move this elsewhere, should probably have the config create the directory structure on startup
-	os.Mkdir(m.config.LogDirectory, 0755)
-	os.OpenFile(fmt.Sprintf("%s/%s.log", m.config.LogDirectory, newVmId), os.O_RDONLY|os.O_CREATE, 0666)
-
-	_, err = os.Stat(m.config.ApiSocketsDirectory)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return vm{}, fmt.Errorf("failed to check if firecracker vm configuration directory exists: %w", err)
-		}
-
-		if err = os.MkdirAll(m.config.ApiSocketsDirectory, 0755); err != nil {
-			return vm{}, fmt.Errorf("failed to create firecracker vm configuration directory: %w", err)
-		}
-	}
-
-	socketName := fmt.Sprintf("%s/%s.socket", m.config.ApiSocketsDirectory, newVmId)
-
-	return vm{
-		id: newVmId,
-		cmd: exec.Command(
-			m.config.FirecrackerPath,
-			"--api-sock", socketName,
-			"--config-file", fileName,
-			"--enable-pci",
-		),
-		onExit: func(id VmId, exitCode int) {
-			// Inject ourselves here - once the VM exists, clean up its configuration file and socket.
-			os.Remove(fileName)
-			fmt.Printf("cleanup: %s\n", fileName)
-
-			os.Remove(socketName)
-			fmt.Printf("cleanup: %s\n", socketName)
-
-			// End of injection.
-			onExit(id, exitCode)
-		},
-	}, nil
-}
-
-func (vm *vm) Start() {
-	go func() {
-		err := vm.cmd.Run()
-		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
-			fmt.Printf(
-				"vm %s (PID %d) exited with exit code %d and stderr: \"%s\"\n",
-				vm.id,
-				exitErr.Pid(),
-				exitErr.ExitCode(),
-				string(exitErr.Stderr),
-			)
-
-			vm.onExit(vm.id, exitErr.ExitCode())
-		} else {
-			vm.onExit(vm.id, 0)
-		}
-	}()
 }
 
 // NewVmId returns a new VmId based on the runtime.

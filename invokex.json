@@ -10,7 +10,7 @@
             "path": ".invokex/runtime/rootfs_golang_x86_64.ext4"
         },
         "directories": {
-            "firecrackerlogs": ".invokex/logs",
+            "firecrackerlogs": ".invokex/firecrackerlogs",
             "vmconfigs": ".invokex/vmconfigs",
             "apisockets": ".invokex/apisockets"
         }

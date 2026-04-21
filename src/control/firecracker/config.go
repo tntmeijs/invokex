@@ -2,34 +2,34 @@ package firecracker
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 )
 
 type (
-	FirecrackerVmConfig struct {
-		BootSource        BootSource         `json:"boot-source"`
-		Drives            []Drive            `json:"drives"`
-		MachineConfig     MachineConfig      `json:"machine-config"`
-		NetworkInterfaces []NetworkInterface `json:"network-interfaces"`
-		Logger            Logger             `json:"logger"`
+	vmConfig struct {
+		fileName          string             `json:"-"`
+		BootSource        bootSource         `json:"boot-source"`
+		Drives            []drive            `json:"drives"`
+		MachineConfig     machineConfig      `json:"machine-config"`
+		NetworkInterfaces []networkInterface `json:"network-interfaces"`
+		Logger            logger             `json:"logger"`
 	}
 
-	BootSource struct {
+	bootSource struct {
 		KernelImagePath string `json:"kernel_image_path"`
 		BootArgs        string `json:"boot_args"`
 	}
 
-	Drive struct {
+	drive struct {
 		Id           string `json:"drive_id"`
 		PathOnHost   string `json:"path_on_host"`
 		IsRootDevice bool   `json:"is_root_device"`
 		IsReadOnly   bool   `json:"is_read_only"`
 	}
 
-	MachineConfig struct {
+	machineConfig struct {
 		VcpuCount       int    `json:"vcpu_count"`
 		MemorySize      int    `json:"mem_size_mib"`
 		SMT             bool   `json:"smt"`
@@ -37,13 +37,13 @@ type (
 		HugePages       string `json:"huge_pages"`
 	}
 
-	NetworkInterface struct {
+	networkInterface struct {
 		Id              string `json:"iface_id"`
 		GuestMacAddress string `json:"guest_mac"`
 		HostDevName     string `json:"host_dev_name"`
 	}
 
-	Logger struct {
+	logger struct {
 		Path          string   `json:"log_path"`
 		Level         LogLevel `json:"level"`
 		ShowLevel     bool     `json:"show_level"`
@@ -53,11 +53,10 @@ type (
 
 // CreateDefaultFirecrackerVmConfig creates a new FirecrackerVmConfig with sensible defaults.
 func CreateDefaultFirecrackerVmConfig(
-	vmId VmId,
-	runtime Runtime,
-	kernelImagePath, rootFsPath, logPath string,
+	id VmId,
+	vmConfigDirectory, kernelImagePath, rootFsPath, logPath string,
 	logLevel LogLevel,
-) FirecrackerVmConfig {
+) vmConfig {
 	bootArgs := "console=ttyS0 reboot=k panic=1 init=./init"
 
 	arch := os.Getenv("GOARCH")
@@ -65,12 +64,13 @@ func CreateDefaultFirecrackerVmConfig(
 		bootArgs = "keep_bootcon " + bootArgs
 	}
 
-	return FirecrackerVmConfig{
-		BootSource: BootSource{
+	return vmConfig{
+		fileName: fmt.Sprintf("%s/%s_config.json", vmConfigDirectory, id),
+		BootSource: bootSource{
 			KernelImagePath: kernelImagePath,
 			BootArgs:        "console=ttyS0 reboot=k panic=1 init=./init",
 		},
-		Drives: []Drive{
+		Drives: []drive{
 			{
 				Id:           "rootfs",
 				PathOnHost:   rootFsPath,
@@ -78,16 +78,16 @@ func CreateDefaultFirecrackerVmConfig(
 				IsReadOnly:   false,
 			},
 		},
-		MachineConfig: MachineConfig{
+		MachineConfig: machineConfig{
 			VcpuCount:       2,
 			MemorySize:      1024,
 			SMT:             false,
 			TrackDirtyPages: false,
 			HugePages:       "None",
 		},
-		NetworkInterfaces: []NetworkInterface{},
-		Logger: Logger{
-			Path:          fmt.Sprintf("%s/%s.log", logPath, vmId),
+		NetworkInterfaces: []networkInterface{},
+		Logger: logger{
+			Path:          fmt.Sprintf("%s/%s.log", logPath, id),
 			Level:         logLevel,
 			ShowLevel:     true,
 			ShowLogOrigin: true,
@@ -95,25 +95,17 @@ func CreateDefaultFirecrackerVmConfig(
 	}
 }
 
-// WriteToDisk stores the FirecrackerVmConfig as a JSON file on disk at the specified location.
-func (c FirecrackerVmConfig) WriteToDisk(id VmId, directory string) (string, error) {
+// WriteToDisk stores the FirecrackerVmConfig as a JSON file on disk.
+func (c vmConfig) WriteToDisk() error {
 	bytes, err := json.MarshalIndent(c, "", "  ") // pretty-print JSON for debugging purposes
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal firecracker vm configuration: %w", err)
+		return fmt.Errorf("failed to marshal firecracker vm configuration: %w", err)
 	}
 
-	// Create directory if not exists.
-	_, err = os.Stat(directory)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("failed to check if firecracker vm configuration directory exists: %w", err)
-		}
+	return os.WriteFile(c.fileName, bytes, 0644)
+}
 
-		if err = os.MkdirAll(directory, 0755); err != nil {
-			return "", fmt.Errorf("failed to create firecracker vm configuration directory: %w", err)
-		}
-	}
-
-	fileName := fmt.Sprintf("%s/%s_config.json", directory, id)
-	return fileName, os.WriteFile(fileName, bytes, 0644)
+// The delete method removes the FirecrackerVmConfig JSON file from disk.
+func (c vmConfig) delete() error {
+	return os.Remove(c.fileName)
 }

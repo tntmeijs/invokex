@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -61,4 +62,14 @@ func MustLoadFromArgs() Config {
 	}
 
 	return config
+}
+
+// CreateDirectories ensures that the directories specified in the configuration are actually present on disk.
+func (c Config) CreateDirectories() error {
+	var errs error
+	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.ApiSockets, os.ModePerm))
+	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.FirecrackerLogs, os.ModePerm))
+	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.VmConfigurations, os.ModePerm))
+
+	return errs
 }

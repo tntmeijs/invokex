@@ -175,6 +175,9 @@ func (c *controlPlane) deleteVm(r server.Request) (server.Response, error) {
 func main() {
 	// TODO: wrap application with a signal listener so we can clean up any pending VMs when we receive SIGTERM.
 	config := config.MustLoadFromArgs()
+	if err := config.CreateDirectories(); err != nil {
+		panic(fmt.Sprintf("could not create one or multiple directories specified in the configuration file: %w", err))
+	}
 
 	// Source code will be place here
 	if err := os.MkdirAll(sourceCodeDestination, 0600); err != nil {
