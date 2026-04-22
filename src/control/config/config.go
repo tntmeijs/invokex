@@ -38,6 +38,7 @@ type (
 
 	Upload struct {
 		Directory string `json:"directory"`
+		Output    string `json:"output"`
 	}
 )
 
@@ -77,11 +78,12 @@ func MustLoadFromArgs() Config {
 // CreateDirectories ensures that the directories specified in the configuration are actually present on disk.
 func (c Config) CreateDirectories() error {
 	var errs error
-	errors.Join(errs, os.MkdirAll(c.Application.Upload.Directory, os.ModePerm))
-	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.ApiSockets, os.ModePerm))
-	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.FirecrackerLogs, os.ModePerm))
-	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.VmConfigurations, os.ModePerm))
-	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.VmLogs, os.ModePerm))
+	errors.Join(errs, os.MkdirAll(c.Application.Upload.Directory, 0744))
+	errors.Join(errs, os.MkdirAll(c.Application.Upload.Output, 0744))
+	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.ApiSockets, 0744))
+	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.FirecrackerLogs, 0744))
+	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.VmConfigurations, 0744))
+	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.VmLogs, 0744))
 
 	return errs
 }

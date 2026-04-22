@@ -1,7 +1,8 @@
 {
     "application": {
         "upload": {
-            "directory": ".invokex/upload"
+            "directory": ".invokex/upload",
+            "output": ".invokex/output"
         }
     },
     "firecracker": {

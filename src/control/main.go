@@ -30,9 +30,10 @@ type (
 	}
 
 	controlPlane struct {
-		server  server.HttpServer
-		manager firecracker.FirecrackerManager
-		config  config.Config
+		server             server.HttpServer
+		manager            firecracker.FirecrackerManager
+		config             config.Config
+		applicationService application.Service
 	}
 )
 
@@ -92,7 +93,7 @@ func (c *controlPlane) uploadApplication(r server.Request) (server.Response, err
 
 	defer func() {
 		if err := file.Close(); err != nil {
-			panic(fmt.Sprintf("could not close file: %v", err))
+			panic(fmt.Sprintf("could not close file: %w", err))
 		}
 	}()
 
@@ -105,16 +106,21 @@ func (c *controlPlane) uploadApplication(r server.Request) (server.Response, err
 	}
 
 	if err != io.EOF {
-		return server.ReturnError(fmt.Errorf("failed to read file: %v", err))
+		return server.ReturnError(fmt.Errorf("failed to read file: %w", err))
 	}
 
-	applicationId := application.NewApplicationId().String()
-	if err = os.WriteFile(path.Join(c.config.Application.Upload.Directory, applicationId), buffer[:header.Size], 0200); err != nil {
-		return server.ReturnError(fmt.Errorf("could not create file for application: %v", err))
+	applicationId := application.NewApplicationId()
+	if err = os.WriteFile(path.Join(c.config.Application.Upload.Directory, applicationId.String()), buffer[:header.Size], 0644); err != nil {
+		return server.ReturnError(fmt.Errorf("could not create file for application: %w", err))
+	}
+
+	// TODO: make this async by processing the archive using an event queue or something similar - this is just for testing purposes
+	if err = c.applicationService.ProcessArchive(applicationId); err != nil {
+		return server.ReturnError(fmt.Errorf("could not process uploaded application: %w", err))
 	}
 
 	fmt.Printf("user has uploaded application %s for runtime %s\n", applicationId, runtime)
-	return server.ReturnResponse(http.StatusOK, uploadApplicationResponseBody{Id: applicationId})
+	return server.ReturnResponse(http.StatusOK, uploadApplicationResponseBody{Id: applicationId.String()})
 }
 
 func (c *controlPlane) deleteApplication(r server.Request) (server.Response, error) {
@@ -128,7 +134,7 @@ func (c *controlPlane) deleteApplication(r server.Request) (server.Response, err
 
 	payload := deleteApplicationPayload{}
 	if err := json.NewDecoder(r.Raw.Body).Decode(&payload); err != nil {
-		return server.ReturnError(fmt.Errorf("could not decode payload: %v", err))
+		return server.ReturnError(fmt.Errorf("could not decode payload: %w", err))
 	}
 
 	fileName := payload.Name
@@ -192,10 +198,16 @@ func main() {
 	firecrackerManager.RegisterVmConfig(firecracker.NewGolangConfig(firecracker.LogLevelDebug))
 	firecrackerManager.RegisterVmConfig(firecracker.NewNodeConfig(25, firecracker.LogLevelDebug))
 
+	applicationService := application.NewService(
+		config.Application.Upload.Directory,
+		config.Application.Upload.Output,
+	)
+
 	ctrl := controlPlane{
-		manager: firecrackerManager,
-		server:  *server.NewHttpServer(),
-		config:  config,
+		manager:            firecrackerManager,
+		server:             *server.NewHttpServer(),
+		config:             config,
+		applicationService: applicationService,
 	}
 
 	err := ctrl.server.
