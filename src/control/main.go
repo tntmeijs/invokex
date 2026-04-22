@@ -27,15 +27,20 @@ type (
 		Id string `json:"id"`
 	}
 
+	applicationFileUploadEvent struct {
+		Path string `json:"path"`
+	}
+
 	messageResponseBody struct {
 		Message string `json:"message"`
 	}
 
 	controlPlane struct {
-		server             server.HttpServer
-		manager            firecracker.FirecrackerManager
-		config             config.Config
-		applicationService application.Service
+		server                         server.HttpServer
+		manager                        firecracker.FirecrackerManager
+		config                         config.Config
+		applicationService             application.Service
+		applicationFileUploadPublisher rabbitmq.Publisher // TODO: this should live somewhere else
 	}
 )
 
@@ -114,13 +119,13 @@ func (c *controlPlane) uploadApplication(r server.Request) (server.Response, err
 	}
 
 	applicationId := application.NewApplicationId()
-	if err = os.WriteFile(path.Join(c.config.Application.Upload.Directory, applicationId.String()), buffer[:header.Size], 0644); err != nil {
+	outFile := path.Join(c.config.Application.Upload.Directory, applicationId.String())
+	if err = os.WriteFile(outFile, buffer[:header.Size], 0644); err != nil {
 		return server.ReturnError(fmt.Errorf("could not create file for application: %w", err))
 	}
 
-	// TODO: make this async by processing the archive using an event queue or something similar - this is just for testing purposes
-	if err = c.applicationService.ProcessArchive(applicationId); err != nil {
-		return server.ReturnError(fmt.Errorf("could not process uploaded application: %w", err))
+	if err = c.applicationFileUploadPublisher.SendJson(r.Raw.Context(), applicationFileUploadEvent{Path: outFile}); err != nil {
+		return server.ReturnError(fmt.Errorf("failed to send file upload event: %w", err))
 	}
 
 	fmt.Printf("user has uploaded application %s for runtime %s\n", applicationId, runtime)
@@ -211,17 +216,26 @@ func main() {
 		panic(fmt.Sprintf("could not establish a connection with rabbitmq: %s", err.Error()))
 	}
 
+	applicationFileUploadPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, queueNameApplicationFileUpload)
+	if err != nil {
+		panic(fmt.Sprint("could not create application file upload publisher: %s", err.Error()))
+	}
+
 	applicationService := application.NewService(
 		config.Application.Upload.Directory,
 		config.Application.Upload.Output,
-		rabbitmqConnection,
 	)
 
+	if err != nil {
+		panic(fmt.Sprintf("could not create application service: %s", err.Error()))
+	}
+
 	ctrl := controlPlane{
-		manager:            firecrackerManager,
-		server:             *server.NewHttpServer(),
-		config:             config,
-		applicationService: applicationService,
+		manager:                        firecrackerManager,
+		server:                         *server.NewHttpServer(),
+		config:                         config,
+		applicationService:             applicationService,
+		applicationFileUploadPublisher: applicationFileUploadPublisher,
 	}
 
 	err = ctrl.server.

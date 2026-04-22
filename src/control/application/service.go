@@ -8,16 +8,14 @@ import (
 	"path"
 
 	"github.com/google/uuid"
-	"github.com/tntmeijs/invokex/src/pubsub/rabbitmq"
 )
 
 type (
 	ApplicationId string
 
 	Service struct {
-		inputDirectory     string
-		outputDirectory    string
-		rabbitMqConnection rabbitmq.Connection
+		inputDirectory  string
+		outputDirectory string
 	}
 )
 
@@ -30,11 +28,10 @@ func (s ApplicationId) String() string {
 	return string(s)
 }
 
-func NewService(inputDirectory, outputDirectory string, connection rabbitmq.Connection) Service {
+func NewService(inputDirectory, outputDirectory string) Service {
 	return Service{
-		inputDirectory:     inputDirectory,
-		outputDirectory:    outputDirectory,
-		rabbitMqConnection: connection,
+		inputDirectory:  inputDirectory,
+		outputDirectory: outputDirectory,
 	}
 }
 
