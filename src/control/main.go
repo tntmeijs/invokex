@@ -132,7 +132,7 @@ func (c *controlPlane) deleteApplication(r server.Request) (server.Response, err
 		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: "no application name has been specified"})
 	}
 
-	if !strings.HasSuffix(fileName, ".zip") {
+	if strings.Compare(path.Ext(fileName), ".zip") != 0 {
 		fileName += ".zip"
 	}
 
