@@ -180,7 +180,7 @@ func main() {
 	}
 
 	// Source code will be place here
-	if err := os.MkdirAll(sourceCodeDestination, 0600); err != nil {
+	if err := os.MkdirAll(sourceCodeDestination, os.ModePerm); err != nil {
 		panic(fmt.Sprintf("could not create source code directory: %v", err))
 	}
 
@@ -191,6 +191,7 @@ func main() {
 		LogDirectory:        config.Firecracker.Directories.FirecrackerLogs,
 		VmConfigDirectory:   config.Firecracker.Directories.VmConfigurations,
 		ApiSocketsDirectory: config.Firecracker.Directories.ApiSockets,
+		VmLogsDirectory:     config.Firecracker.Directories.VmLogs,
 	})
 
 	firecrackerManager.RegisterVmConfig(firecracker.NewGolangConfig(firecracker.LogLevelDebug))

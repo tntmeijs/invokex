@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 )
 
@@ -65,7 +66,7 @@ func CreateDefaultFirecrackerVmConfig(
 	}
 
 	return vmConfig{
-		fileName: fmt.Sprintf("%s/%s_config.json", vmConfigDirectory, id),
+		fileName: path.Join(vmConfigDirectory, fmt.Sprintf("%s.json", id)),
 		BootSource: bootSource{
 			KernelImagePath: kernelImagePath,
 			BootArgs:        "console=ttyS0 reboot=k panic=1 init=./init",

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 )
 
 type (
@@ -16,11 +17,31 @@ type (
 		onVmProcessExit onVmProcessExit
 		socket          apiSocket
 		config          vmConfig
+		stdout          os.File
+		stderr          os.File
+	}
+
+	vmCreateInfo struct {
+		firecrackerBinaryPath    string
+		vmConfigurationDirectory string
+		apiSocketDirectory       string
+		kernelImagePath          string
+		rootFsPath               string
+		firecrackerLogDirectory  string
+		vmLogsDirectory          string
 	}
 )
 
-func newVm(id VmId, firecrackerBinaryPath, vmConfigDirectory, apiSocketDirectory, kernelImagePath, rootFsPath, firecrackerLogDirectory string, onExit onVmProcessExit) (vm, error) {
-	vmCfg := CreateDefaultFirecrackerVmConfig(id, vmConfigDirectory, kernelImagePath, rootFsPath, firecrackerLogDirectory, LogLevelDebug)
+func newVm(id VmId, createInfo vmCreateInfo, onExit onVmProcessExit) (vm, error) {
+	vmCfg := CreateDefaultFirecrackerVmConfig(
+		id,
+		createInfo.vmConfigurationDirectory,
+		createInfo.kernelImagePath,
+		createInfo.rootFsPath,
+		createInfo.firecrackerLogDirectory,
+		LogLevelDebug,
+	)
+
 	if err := vmCfg.WriteToDisk(); err != nil {
 		return vm{}, fmt.Errorf("failed to write vm %s configuration to disk: %w", id, err)
 	}
@@ -28,17 +49,35 @@ func newVm(id VmId, firecrackerBinaryPath, vmConfigDirectory, apiSocketDirectory
 	// Ensure Firecracker has a log destination.
 	_, err := os.OpenFile(vmCfg.Logger.Path, os.O_CREATE, 0666)
 	if err != nil {
+		vmCfg.delete()
 		return vm{}, fmt.Errorf("failed to create firecracker log file: %w", err)
 	}
 
-	socket := newApiSocket(id, apiSocketDirectory)
+	socket := newApiSocket(id, createInfo.apiSocketDirectory)
 
 	cmd := exec.Command(
-		firecrackerBinaryPath,
+		createInfo.firecrackerBinaryPath,
 		"--api-sock", socket.path,
 		"--config-file", vmCfg.fileName,
 		"--enable-pci",
 	)
+
+	stdoutDestination, err := os.Create(path.Join(createInfo.vmLogsDirectory, fmt.Sprintf("%s_stdout.log", id)))
+	if err != nil {
+		vmCfg.delete()
+		return vm{}, fmt.Errorf("failed to create file for vm's stdout stream: %w", err)
+	}
+
+	stderrDestination, err := os.Create(path.Join(createInfo.vmLogsDirectory, fmt.Sprintf("%s_stderr.log", id)))
+	if err != nil {
+		vmCfg.delete()
+		stdoutDestination.Close()
+
+		return vm{}, fmt.Errorf("failed to create file for vm's stderr stream: %w", err)
+	}
+
+	cmd.Stdout = stdoutDestination
+	cmd.Stderr = stderrDestination
 
 	return vm{
 		id:              id,
@@ -46,6 +85,8 @@ func newVm(id VmId, firecrackerBinaryPath, vmConfigDirectory, apiSocketDirectory
 		onVmProcessExit: onExit,
 		socket:          socket,
 		config:          vmCfg,
+		stdout:          *stdoutDestination,
+		stderr:          *stderrDestination,
 	}, nil
 }
 
@@ -71,6 +112,8 @@ func (vm *vm) start() {
 func (vm *vm) onProcessEnd(exitCode int) {
 	vm.socket.close()
 	vm.config.delete()
+	vm.stdout.Close()
+	vm.stderr.Close()
 
 	vm.onVmProcessExit(vm.id, exitCode)
 }

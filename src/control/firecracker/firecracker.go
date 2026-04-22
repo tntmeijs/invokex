@@ -31,6 +31,7 @@ type (
 		LogDirectory        string
 		VmConfigDirectory   string
 		ApiSocketsDirectory string
+		VmLogsDirectory     string
 	}
 
 	FirecrackerManager struct {
@@ -157,21 +158,23 @@ func (c nodeVmConfig) Runtime() Runtime {
 // The newVm method creates a new virtual machine but does not start it yet.
 func (m *FirecrackerManager) newVm(runtime Runtime, onExit onVmProcessExit) (vm, error) {
 	var existingIds []VmId
-	for key, _ := range m.activeVms {
+	for key := range m.activeVms {
 		existingIds = append(existingIds, key)
 	}
 
 	newVmId := NewVmId(runtime, existingIds...)
-	return newVm(
-		newVmId,
-		m.config.FirecrackerPath,
-		m.config.VmConfigDirectory,
-		m.config.ApiSocketsDirectory,
-		m.config.KernelImagePath,
-		m.config.KernelRootFsPath,
-		m.config.LogDirectory,
-		onExit,
-	)
+
+	newVmConfigurationInfo := vmCreateInfo{
+		firecrackerBinaryPath:    m.config.FirecrackerPath,
+		vmConfigurationDirectory: m.config.VmConfigDirectory,
+		apiSocketDirectory:       m.config.ApiSocketsDirectory,
+		kernelImagePath:          m.config.KernelImagePath,
+		rootFsPath:               m.config.KernelRootFsPath,
+		firecrackerLogDirectory:  m.config.LogDirectory,
+		vmLogsDirectory:          m.config.VmLogsDirectory,
+	}
+
+	return newVm(newVmId, newVmConfigurationInfo, onExit)
 }
 
 // NewVmId returns a new VmId based on the runtime.

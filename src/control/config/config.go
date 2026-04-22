@@ -28,6 +28,7 @@ type (
 		FirecrackerLogs  string `json:"firecrackerlogs"`
 		VmConfigurations string `json:"vmconfigs"`
 		ApiSockets       string `json:"apisockets"`
+		VmLogs           string `json:"vmlogs"`
 	}
 )
 
@@ -70,6 +71,7 @@ func (c Config) CreateDirectories() error {
 	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.ApiSockets, os.ModePerm))
 	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.FirecrackerLogs, os.ModePerm))
 	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.VmConfigurations, os.ModePerm))
+	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.VmLogs, os.ModePerm))
 
 	return errs
 }

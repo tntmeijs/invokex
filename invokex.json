@@ -12,7 +12,8 @@
         "directories": {
             "firecrackerlogs": ".invokex/firecrackerlogs",
             "vmconfigs": ".invokex/vmconfigs",
-            "apisockets": ".invokex/apisockets"
+            "apisockets": ".invokex/apisockets",
+            "vmlogs": ".invokex/vmlogs"
         }
     }
 }
