@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/tntmeijs/invokex/src/control/application"
 	"github.com/tntmeijs/invokex/src/control/config"
 	"github.com/tntmeijs/invokex/src/control/firecracker"
 	"github.com/tntmeijs/invokex/src/control/server"
@@ -18,6 +19,10 @@ import (
 type (
 	deleteApplicationPayload struct {
 		Name string `json:"name"`
+	}
+
+	uploadApplicationResponseBody struct {
+		Id string `json:"id"`
 	}
 
 	messageResponseBody struct {
@@ -103,13 +108,13 @@ func (c *controlPlane) uploadApplication(r server.Request) (server.Response, err
 		return server.ReturnError(fmt.Errorf("failed to read file: %v", err))
 	}
 
-	// TODO: generate custom files names and handle conflict resolution gracefully - right now we simply override.
-	if err = os.WriteFile(path.Join(c.config.Application.Upload.Directory, header.Filename), buffer[:header.Size], 0200); err != nil {
+	applicationId := application.NewApplicationId().String()
+	if err = os.WriteFile(path.Join(c.config.Application.Upload.Directory, applicationId), buffer[:header.Size], 0200); err != nil {
 		return server.ReturnError(fmt.Errorf("could not create file for application: %v", err))
 	}
 
-	fmt.Printf("user has uploaded an application for runtime %s\n", runtime)
-	return server.ReturnResponse(http.StatusOK, messageResponseBody{Message: fmt.Sprintf("application %s uploaded successfully", header.Filename)})
+	fmt.Printf("user has uploaded application %s for runtime %s\n", applicationId, runtime)
+	return server.ReturnResponse(http.StatusOK, uploadApplicationResponseBody{Id: applicationId})
 }
 
 func (c *controlPlane) deleteApplication(r server.Request) (server.Response, error) {
@@ -130,10 +135,6 @@ func (c *controlPlane) deleteApplication(r server.Request) (server.Response, err
 
 	if len(fileName) == 0 {
 		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: "no application name has been specified"})
-	}
-
-	if strings.Compare(path.Ext(fileName), ".zip") != 0 {
-		fileName += ".zip"
 	}
 
 	if err := os.Remove(path.Join(c.config.Application.Upload.Directory, fileName)); err != nil {
