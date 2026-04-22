@@ -10,6 +10,7 @@ import (
 
 type (
 	Config struct {
+		Application Application `json:"application"`
 		Firecracker Firecracker `json:"firecracker"`
 	}
 
@@ -29,6 +30,14 @@ type (
 		VmConfigurations string `json:"vmconfigs"`
 		ApiSockets       string `json:"apisockets"`
 		VmLogs           string `json:"vmlogs"`
+	}
+
+	Application struct {
+		Upload Upload `json:"upload"`
+	}
+
+	Upload struct {
+		Directory string `json:"directory"`
 	}
 )
 
@@ -68,6 +77,7 @@ func MustLoadFromArgs() Config {
 // CreateDirectories ensures that the directories specified in the configuration are actually present on disk.
 func (c Config) CreateDirectories() error {
 	var errs error
+	errors.Join(errs, os.MkdirAll(c.Application.Upload.Directory, os.ModePerm))
 	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.ApiSockets, os.ModePerm))
 	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.FirecrackerLogs, os.ModePerm))
 	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.VmConfigurations, os.ModePerm))

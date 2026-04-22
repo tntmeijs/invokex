@@ -116,10 +116,10 @@ func (m *FirecrackerManager) KillVm(id VmId) error {
 
 func NewRuntime(name string, optVersion ...string) Runtime {
 	if len(optVersion) > 0 && len(strings.TrimSpace(optVersion[0])) > 0 {
-		return Runtime(fmt.Sprintf("%s_%v", name, optVersion[0]))
+		return Runtime(strings.ToLower(fmt.Sprintf("%s_%v", name, optVersion[0])))
 	}
 
-	return Runtime(name)
+	return Runtime(strings.ToLower(name))
 }
 
 func NewGolangConfig(logLevel LogLevel) VmConfig {

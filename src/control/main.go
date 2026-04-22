@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"slices"
 	"strings"
 
@@ -15,9 +16,7 @@ import (
 )
 
 type (
-	sourceCodeLanguage = string
-
-	deleteSourceCodePayload struct {
+	deleteApplicationPayload struct {
 		Name string `json:"name"`
 	}
 
@@ -28,25 +27,26 @@ type (
 	controlPlane struct {
 		server  server.HttpServer
 		manager firecracker.FirecrackerManager
+		config  config.Config
 	}
 )
 
 const (
-	sourceCodeLanguageGo sourceCodeLanguage = "GOLANG"
+	runtimeField         string = "runtime"
+	applicationFileField string = "application"
 
-	sourceCodeDestination   string = "./.sourcecode"
-	sourceCodeFileExtension string = "zip"
+	applicationFileExtension string = "zip"
 
-	kilobyte          int64 = 1024
-	megabyte          int64 = kilobyte * kilobyte
-	maxSourceCodeSize int64 = 50 * megabyte
+	kilobyte           int64 = 1024
+	megabyte           int64 = kilobyte * kilobyte
+	maxApplicationSize int64 = 50 * megabyte
 )
 
-var supportedSourceCodeLanguages = []sourceCodeLanguage{
-	sourceCodeLanguageGo,
+var supportedRuntimes = []firecracker.Runtime{
+	"golang",
 }
 
-func (c *controlPlane) uploadSourceCode(r server.Request) (server.Response, error) {
+func (c *controlPlane) uploadApplication(r server.Request) (server.Response, error) {
 	if contentType := r.Raw.Header.Get("Content-Type"); !strings.Contains(contentType, "multipart/form-data") {
 		if len(contentType) == 0 {
 			contentType = "unknown"
@@ -55,26 +55,24 @@ func (c *controlPlane) uploadSourceCode(r server.Request) (server.Response, erro
 		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: fmt.Sprintf("user has not uploaded multipart form data, got: %s", contentType)})
 	}
 
-	language := strings.ToUpper(strings.TrimSpace(r.Raw.FormValue("sourceCodeLanguage")))
-	if len(language) == 0 {
-		fmt.Println("user did not specify the source code language")
+	runtime := firecracker.NewRuntime(strings.TrimSpace(r.Raw.FormValue(runtimeField)))
+	if len(runtime) == 0 {
+		fmt.Println("user did not specify the runtime")
 
-		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: "user did not specify the source code language"})
+		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: "user did not specify the runtime"})
 	}
 
-	if !slices.Contains(supportedSourceCodeLanguages, language) {
-		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: fmt.Sprintf("source code language %s is not supported", language)})
+	if !slices.Contains(supportedRuntimes, runtime) {
+		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: fmt.Sprintf("runtime %s is not supported", runtime)})
 	}
 
-	fmt.Printf("user has uploaded source code of type %s\n", language)
-
-	file, header, err := r.Raw.FormFile("sourceCode")
+	file, header, err := r.Raw.FormFile(applicationFileField)
 	if err != nil {
-		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: fmt.Sprintf("no source code found: %v", err)})
+		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: fmt.Sprintf("no application found: %v", err)})
 	}
 
-	if header.Size > maxSourceCodeSize {
-		return server.ReturnResponse(http.StatusRequestEntityTooLarge, messageResponseBody{Message: fmt.Sprintf("source code package is too big, max size: %dMB", maxSourceCodeSize/megabyte)})
+	if header.Size > maxApplicationSize {
+		return server.ReturnResponse(http.StatusRequestEntityTooLarge, messageResponseBody{Message: fmt.Sprintf("application package is too big, max size: %dMB", maxApplicationSize/megabyte)})
 	}
 
 	parts := strings.Split(header.Filename, ".")
@@ -83,8 +81,8 @@ func (c *controlPlane) uploadSourceCode(r server.Request) (server.Response, erro
 	}
 
 	extension := strings.ToLower(parts[len(parts)-1])
-	if extension != sourceCodeFileExtension {
-		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: fmt.Sprintf("invalid file extension, expected .%s got .%s", sourceCodeFileExtension, extension)})
+	if extension != applicationFileExtension {
+		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: fmt.Sprintf("invalid file extension, expected .%s got .%s", applicationFileExtension, extension)})
 	}
 
 	defer func() {
@@ -106,14 +104,15 @@ func (c *controlPlane) uploadSourceCode(r server.Request) (server.Response, erro
 	}
 
 	// TODO: generate custom files names and handle conflict resolution gracefully - right now we simply override.
-	if err = os.WriteFile(fmt.Sprintf("%s/%s", sourceCodeDestination, header.Filename), buffer[:header.Size], 0200); err != nil {
-		return server.ReturnError(fmt.Errorf("could not create file for source code: %v", err))
+	if err = os.WriteFile(path.Join(c.config.Application.Upload.Directory, header.Filename), buffer[:header.Size], 0200); err != nil {
+		return server.ReturnError(fmt.Errorf("could not create file for application: %v", err))
 	}
 
-	return server.ReturnResponse(http.StatusOK, messageResponseBody{Message: fmt.Sprintf("file %s uploaded successfully", header.Filename)})
+	fmt.Printf("user has uploaded an application for runtime %s\n", runtime)
+	return server.ReturnResponse(http.StatusOK, messageResponseBody{Message: fmt.Sprintf("application %s uploaded successfully", header.Filename)})
 }
 
-func (c *controlPlane) deleteSourceCode(r server.Request) (server.Response, error) {
+func (c *controlPlane) deleteApplication(r server.Request) (server.Response, error) {
 	if contentType := r.Raw.Header.Get("Content-Type"); !strings.Contains(contentType, "application/json") {
 		if len(contentType) == 0 {
 			contentType = "unknown"
@@ -122,7 +121,7 @@ func (c *controlPlane) deleteSourceCode(r server.Request) (server.Response, erro
 		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: fmt.Sprintf("user has not uploaded json data, got: %s", contentType)})
 	}
 
-	payload := deleteSourceCodePayload{}
+	payload := deleteApplicationPayload{}
 	if err := json.NewDecoder(r.Raw.Body).Decode(&payload); err != nil {
 		return server.ReturnError(fmt.Errorf("could not decode payload: %v", err))
 	}
@@ -130,15 +129,15 @@ func (c *controlPlane) deleteSourceCode(r server.Request) (server.Response, erro
 	fileName := payload.Name
 
 	if len(fileName) == 0 {
-		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: "no file name has been specified"})
+		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: "no application name has been specified"})
 	}
 
 	if !strings.HasSuffix(fileName, ".zip") {
 		fileName += ".zip"
 	}
 
-	if err := os.Remove(fmt.Sprintf("%s/%s", sourceCodeDestination, fileName)); err != nil {
-		return server.ReturnResponse(http.StatusNotFound, messageResponseBody{Message: fmt.Sprintf("no source code with name %s was found", fileName)})
+	if err := os.Remove(path.Join(c.config.Application.Upload.Directory, fileName)); err != nil {
+		return server.ReturnResponse(http.StatusNotFound, messageResponseBody{Message: fmt.Sprintf("no application with name %s was found", fileName)})
 	}
 
 	fmt.Printf("deleted file %s\n", fileName)
@@ -179,11 +178,6 @@ func main() {
 		panic(fmt.Sprintf("could not create one or multiple directories specified in the configuration file: %w", err))
 	}
 
-	// Source code will be place here
-	if err := os.MkdirAll(sourceCodeDestination, os.ModePerm); err != nil {
-		panic(fmt.Sprintf("could not create source code directory: %v", err))
-	}
-
 	firecrackerManager := firecracker.NewManager(firecracker.FirecrackerConfig{
 		FirecrackerPath:     config.Firecracker.Instance.Path,
 		KernelImagePath:     config.Firecracker.Kernel.Path,
@@ -200,11 +194,12 @@ func main() {
 	ctrl := controlPlane{
 		manager: firecrackerManager,
 		server:  *server.NewHttpServer(),
+		config:  config,
 	}
 
 	err := ctrl.server.
-		RegisterRoute(server.HttpPost, "/api/v1/sourcecode", ctrl.uploadSourceCode).
-		RegisterRoute(server.HttpDelete, "/api/v1/sourcecode", ctrl.deleteSourceCode).
+		RegisterRoute(server.HttpPost, "/api/v1/application", ctrl.uploadApplication).
+		RegisterRoute(server.HttpDelete, "/api/v1/application", ctrl.deleteApplication).
 		RegisterRoute(server.HttpPost, "/api/v1/vm", ctrl.invokeVm).
 		RegisterRoute(server.HttpDelete, "/api/v1/vm/{id}", ctrl.deleteVm).
 		Run(":8080")

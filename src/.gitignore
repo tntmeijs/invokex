@@ -31,8 +31,5 @@ go.work.sum
 .idea/
 .vscode/
 
-# Uploaded source code
-.sourcecode/
-
 # Binaries
 control/control

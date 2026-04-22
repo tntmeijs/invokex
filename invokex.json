@@ -1,4 +1,9 @@
 {
+    "application": {
+        "upload": {
+            "directory": ".invokex/upload"
+        }
+    },
     "firecracker": {
         "instance": {
             "path": ".invokex/firecracker/firecracker"
