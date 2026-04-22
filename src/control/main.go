@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"github.com/tntmeijs/invokex/src/control/config"
 	"github.com/tntmeijs/invokex/src/control/firecracker"
 	"github.com/tntmeijs/invokex/src/control/server"
+	"github.com/tntmeijs/invokex/src/pubsub/rabbitmq"
 )
 
 type (
@@ -40,6 +42,8 @@ type (
 const (
 	runtimeField         string = "runtime"
 	applicationFileField string = "application"
+
+	queueNameApplicationFileUpload string = "application-file-uploaded"
 
 	applicationFileExtension string = "zip"
 
@@ -198,9 +202,19 @@ func main() {
 	firecrackerManager.RegisterVmConfig(firecracker.NewGolangConfig(firecracker.LogLevelDebug))
 	firecrackerManager.RegisterVmConfig(firecracker.NewNodeConfig(25, firecracker.LogLevelDebug))
 
+	mainCtx := context.Background()
+	rabbitmqInstance := rabbitmq.NewInstance(mainCtx, config.MessageBroker.Username, config.MessageBroker.Password, config.MessageBroker.Host)
+	defer rabbitmqInstance.Close(mainCtx)
+
+	rabbitmqConnection, err := rabbitmqInstance.Connect(mainCtx, rabbitmq.WithClassicQueue(queueNameApplicationFileUpload))
+	if err != nil {
+		panic(fmt.Sprintf("could not establish a connection with rabbitmq: %s", err.Error()))
+	}
+
 	applicationService := application.NewService(
 		config.Application.Upload.Directory,
 		config.Application.Upload.Output,
+		rabbitmqConnection,
 	)
 
 	ctrl := controlPlane{
@@ -210,7 +224,7 @@ func main() {
 		applicationService: applicationService,
 	}
 
-	err := ctrl.server.
+	err = ctrl.server.
 		RegisterRoute(server.HttpPost, "/api/v1/application", ctrl.uploadApplication).
 		RegisterRoute(server.HttpDelete, "/api/v1/application", ctrl.deleteApplication).
 		RegisterRoute(server.HttpPost, "/api/v1/vm", ctrl.invokeVm).

@@ -10,8 +10,9 @@ import (
 
 type (
 	Config struct {
-		Application Application `json:"application"`
-		Firecracker Firecracker `json:"firecracker"`
+		MessageBroker MessageBroker `json:"messagebroker"`
+		Application   Application   `json:"application"`
+		Firecracker   Firecracker   `json:"firecracker"`
 	}
 
 	Firecracker struct {
@@ -39,6 +40,12 @@ type (
 	Upload struct {
 		Directory string `json:"directory"`
 		Output    string `json:"output"`
+	}
+
+	MessageBroker struct {
+		Host     string `json:"host"`
+		Username string `json:"username"`
+		Password string `json:"password"`
 	}
 )
 

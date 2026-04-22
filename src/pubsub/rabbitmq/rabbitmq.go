@@ -48,8 +48,8 @@ const (
 )
 
 // NewInstance interfaces with RabbitMQ.
-func NewInstance(ctx context.Context, address string) Instance {
-	e := rabbitmqamqp.NewEnvironment(address, nil)
+func NewInstance(ctx context.Context, username, password, host string) Instance {
+	e := rabbitmqamqp.NewEnvironment(fmt.Sprintf("amqp://%s:%s@%s", username, password, host), nil)
 	return Instance{Environment: e}
 }
 

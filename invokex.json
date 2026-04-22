@@ -1,4 +1,9 @@
 {
+    "messagebroker": {
+        "host": "localhost:5672",
+        "username": "invokex",
+        "password": "admin"
+    },
     "application": {
         "upload": {
             "directory": ".invokex/upload",
