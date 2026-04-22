@@ -9,9 +9,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tntmeijs/invokex/control/config"
-	"github.com/tntmeijs/invokex/control/firecracker"
-	"github.com/tntmeijs/invokex/control/server"
+	"github.com/tntmeijs/invokex/src/control/config"
+	"github.com/tntmeijs/invokex/src/control/firecracker"
+	"github.com/tntmeijs/invokex/src/control/server"
 )
 
 type (

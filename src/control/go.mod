@@ -1,4 +1,4 @@
-module github.com/tntmeijs/invokex/control
+module github.com/tntmeijs/invokex/src/control
 
 go 1.26.2
 
