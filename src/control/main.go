@@ -15,6 +15,7 @@ import (
 	"github.com/tntmeijs/invokex/src/control/firecracker"
 	"github.com/tntmeijs/invokex/src/control/server"
 	"github.com/tntmeijs/invokex/src/pubsub/rabbitmq"
+	"go.uber.org/dig"
 )
 
 type (
@@ -31,10 +32,11 @@ type (
 	}
 
 	controlPlane struct {
-		server                         server.HttpServer
+		server                         *server.HttpServer
 		manager                        firecracker.FirecrackerManager
 		config                         config.Config
 		applicationFileUploadPublisher rabbitmq.Publisher // TODO: this should live somewhere else
+		container                      *dig.Container
 	}
 )
 
@@ -193,11 +195,19 @@ func main() {
 		panic(fmt.Sprintf("could not create application file upload publisher: %s", err.Error()))
 	}
 
+	dependencyContainer := dig.New()
+	for _, f := range dependencyProviderFuncs {
+		if err = dependencyContainer.Provide(f); err != nil {
+			panic(fmt.Sprintf("could not provide dependency: %s", err.Error()))
+		}
+	}
+
 	ctrl := controlPlane{
 		manager:                        firecrackerManager,
-		server:                         *server.NewHttpServer(),
+		server:                         server.NewHttpServer(),
 		config:                         config,
 		applicationFileUploadPublisher: applicationFileUploadPublisher,
+		container:                      dependencyContainer,
 	}
 
 	applicationFileUploadConsumer.Listen(mainCtx, ctrl.onFileUpload)
