@@ -13,7 +13,7 @@ type (
 	MessageOutcome int
 
 	ConnectionOption  func(context.Context, *rabbitmqamqp.AmqpManagement) error
-	OnMessageReceived func(Message) MessageOutcome
+	OnMessageReceived func(context.Context, Message) MessageOutcome
 
 	// Instance provides a way to interact with RabbitMQ instances.
 	Instance struct {
@@ -133,7 +133,7 @@ func (c *Consumer) Listen(ctx context.Context, onMessage OnMessageReceived) {
 					}
 				}
 
-				switch onMessage(Message{Data: deliveryCtx.Message().GetData()}) {
+				switch onMessage(consumerCtx, Message{Data: deliveryCtx.Message().GetData()}) {
 				case MessageOutcomeAccept:
 					deliveryCtx.Accept(consumerCtx)
 				case MessageOutcomeDiscard:

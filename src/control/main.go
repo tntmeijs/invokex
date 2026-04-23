@@ -19,12 +19,19 @@ import (
 )
 
 type (
+	filesystem string
+
 	uploadApplicationResponseBody struct {
 		Id string `json:"id"`
 	}
 
 	unpackArchiveEvent struct {
 		Path string `json:"path"`
+	}
+
+	createFilesystemEvent struct {
+		Type filesystem `json:"type"`
+		Root string     `json:"root"`
 	}
 
 	messageResponseBody struct {
@@ -40,12 +47,16 @@ const (
 	runtimeField         string = "runtime"
 	applicationFileField string = "application"
 
-	exchangeNameUserApplication                       string = "invokex.user.application"
-	exchangeBindingKeyNewUserApplicationArchiveUnpack string = "user.application.archive.unpack"
+	exchangeNameUserApplication                                     string = "invokex.user.application"
+	exchangeBindingKeyNewUserApplicationArchiveUnpack               string = "user.application.archive.unpack"
+	exchangeBindingKeyNewUserApplicationArchiveCreateFilesystemExt4 string = "user.application.archive.filesystem.ext4"
 
-	queueNameUnpackArchive string = "user.application.archive.unpack"
+	queueNameUnpackArchive    string = "user.application.archive.unpack"
+	queueNameCreateFilesystem string = "user.application.archive.filesystem"
 
 	applicationFileExtension string = "zip"
+
+	filesystemExt4 filesystem = "ext4"
 
 	kilobyte           int64 = 1024
 	megabyte           int64 = kilobyte * kilobyte
@@ -111,8 +122,10 @@ func main() {
 	rabbitmqConnection, err := rabbitmqInstance.Connect(
 		mainCtx,
 		rabbitmq.WithClassicQueue(queueNameUnpackArchive),
+		rabbitmq.WithClassicQueue(queueNameCreateFilesystem),
 		rabbitmq.WithTopicExchange(exchangeNameUserApplication),
 		rabbitmq.WithExchangeToQueueBinding(exchangeNameUserApplication, queueNameUnpackArchive, exchangeBindingKeyNewUserApplicationArchiveUnpack),
+		rabbitmq.WithExchangeToQueueBinding(exchangeNameUserApplication, queueNameCreateFilesystem, exchangeBindingKeyNewUserApplicationArchiveCreateFilesystemExt4),
 	)
 	if err != nil {
 		panic(fmt.Sprintf("could not establish a connection with rabbitmq: %s", err.Error()))
@@ -123,16 +136,30 @@ func main() {
 		panic(fmt.Sprintf("could not create application file upload consumer: %s", err.Error()))
 	}
 
-	applicationFileUploadConsumer.Listen(mainCtx, func(msg rabbitmq.Message) rabbitmq.MessageOutcome {
-		return onFileUploadEvent(fileProcessor, globalConfig.Application.Upload.Output, msg)
-	})
-	defer applicationFileUploadConsumer.Stop()
+	createFilesystemConsumer, err := rabbitmqConnection.NewConsumer(mainCtx, queueNameCreateFilesystem)
+	if err != nil {
+		panic(fmt.Sprintf("could not create filesystem consumer: %s", err.Error()))
+	}
 
 	applicationFileUploadPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, queueNameUnpackArchive)
 	if err != nil {
 		panic(fmt.Sprintf("could not create application file upload publisher: %s", err.Error()))
 	}
 	defer applicationFileUploadPublisher.Stop(mainCtx)
+
+	applicationFileCreateFilesystemPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, queueNameCreateFilesystem)
+	if err != nil {
+		panic(fmt.Sprintf("could not create application ext4 filesystem publisher: %s", err.Error()))
+	}
+	defer applicationFileCreateFilesystemPublisher.Stop(mainCtx)
+
+	applicationFileUploadConsumer.Listen(mainCtx, func(ctx context.Context, msg rabbitmq.Message) rabbitmq.MessageOutcome {
+		return onFileUploadEvent(ctx, fileProcessor, applicationFileCreateFilesystemPublisher, globalConfig.Application.Upload.Output, msg)
+	})
+	defer applicationFileUploadConsumer.Stop()
+
+	createFilesystemConsumer.Listen(mainCtx, onCreateFilesystemEvent)
+	defer createFilesystemConsumer.Stop()
 
 	err = server.NewHttpServer().
 		RegisterRoute(server.HttpPost, "/api/v1/application", func(r server.Request) (server.Response, error) {
@@ -147,19 +174,38 @@ func main() {
 	}
 }
 
-func onFileUploadEvent(processor application.FileUploadProcessor, outputDirectory string, msg rabbitmq.Message) rabbitmq.MessageOutcome {
+func onFileUploadEvent(ctx context.Context, processor application.FileUploadProcessor, createFilesystemPublisher rabbitmq.Publisher, outputDirectory string, msg rabbitmq.Message) rabbitmq.MessageOutcome {
 	var event unpackArchiveEvent
 	if err := msg.AsJson(&event); err != nil {
-		fmt.Printf("failed to consume file upload event: %v\n", err)
-		return rabbitmq.MessageOutcomeRequeue
+		fmt.Printf("failed to consume file upload event: %s\n", err.Error())
+		return rabbitmq.MessageOutcomeDiscard
 	}
 
-	if err := processor.UnpackArchive(event.Path, outputDirectory); err != nil {
+	output, err := processor.UnpackArchive(event.Path, outputDirectory)
+
+	if err != nil {
 		fmt.Printf("failed to unpack archive: %v\n", err)
-		return rabbitmq.MessageOutcomeRequeue
+		return rabbitmq.MessageOutcomeDiscard
 	}
 
 	fmt.Printf("processed file upload successfully: %s\n", event.Path)
+
+	if err = createFilesystemPublisher.SendJson(ctx, createFilesystemEvent{Type: filesystemExt4, Root: output}); err != nil {
+		fmt.Printf("unpacking was successful but could not publish create filesystem event: %s\n", err.Error())
+		return rabbitmq.MessageOutcomeDiscard
+	}
+
+	return rabbitmq.MessageOutcomeAccept
+}
+
+func onCreateFilesystemEvent(ctx context.Context, msg rabbitmq.Message) rabbitmq.MessageOutcome {
+	var event createFilesystemEvent
+	if err := msg.AsJson(&event); err != nil {
+		fmt.Printf("failed to consume create filesystem event: %s\n", err.Error())
+		return rabbitmq.MessageOutcomeDiscard
+	}
+
+	fmt.Printf("received create file system event: %v\n", string(msg.Data))
 	return rabbitmq.MessageOutcomeAccept
 }
 
