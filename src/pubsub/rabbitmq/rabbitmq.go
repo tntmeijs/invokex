@@ -116,22 +116,24 @@ func (c *Consumer) Listen(ctx context.Context, onMessage OnMessageReceived) {
 	// TODO: add logging on failures in the consumer Goroutine
 	// TODO: add better error handling in Goroutine
 	go func(consumerCtx context.Context) {
-		select {
-		case <-c.done:
-			return
-		default:
-			deliveryCtx, err := c.Raw.Receive(consumerCtx)
-			if errors.Is(err, context.Canceled) {
+		for {
+			select {
+			case <-c.done:
 				return
-			}
+			default:
+				deliveryCtx, err := c.Raw.Receive(consumerCtx)
+				if errors.Is(err, context.Canceled) {
+					return
+				}
 
-			switch onMessage(Message{Data: deliveryCtx.Message().GetData()}, err) {
-			case MessageOutcomeAccept:
-				deliveryCtx.Accept(consumerCtx)
-			case MessageOutcomeDiscard:
-				deliveryCtx.Discard(consumerCtx, nil)
-			case MessageOutcomeRequeue:
-				deliveryCtx.Requeue(consumerCtx)
+				switch onMessage(Message{Data: deliveryCtx.Message().GetData()}, err) {
+				case MessageOutcomeAccept:
+					deliveryCtx.Accept(consumerCtx)
+				case MessageOutcomeDiscard:
+					deliveryCtx.Discard(consumerCtx, nil)
+				case MessageOutcomeRequeue:
+					deliveryCtx.Requeue(consumerCtx)
+				}
 			}
 		}
 	}(ctx)

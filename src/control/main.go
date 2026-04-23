@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,10 +18,6 @@ import (
 )
 
 type (
-	deleteApplicationPayload struct {
-		Name string `json:"name"`
-	}
-
 	uploadApplicationResponseBody struct {
 		Id string `json:"id"`
 	}
@@ -39,7 +34,6 @@ type (
 		server                         server.HttpServer
 		manager                        firecracker.FirecrackerManager
 		config                         config.Config
-		applicationService             application.Service
 		applicationFileUploadPublisher rabbitmq.Publisher // TODO: this should live somewhere else
 	}
 )
@@ -102,7 +96,7 @@ func (c *controlPlane) uploadApplication(r server.Request) (server.Response, err
 
 	defer func() {
 		if err := file.Close(); err != nil {
-			panic(fmt.Sprintf("could not close file: %w", err))
+			panic(fmt.Sprintf("could not close file: %v", err))
 		}
 	}()
 
@@ -124,40 +118,13 @@ func (c *controlPlane) uploadApplication(r server.Request) (server.Response, err
 		return server.ReturnError(fmt.Errorf("could not create file for application: %w", err))
 	}
 
+	fmt.Printf("user has uploaded application %s for runtime %s\n", applicationId, runtime)
+
 	if err = c.applicationFileUploadPublisher.SendJson(r.Raw.Context(), applicationFileUploadEvent{Path: outFile}); err != nil {
 		return server.ReturnError(fmt.Errorf("failed to send file upload event: %w", err))
 	}
 
-	fmt.Printf("user has uploaded application %s for runtime %s\n", applicationId, runtime)
 	return server.ReturnResponse(http.StatusOK, uploadApplicationResponseBody{Id: applicationId.String()})
-}
-
-func (c *controlPlane) deleteApplication(r server.Request) (server.Response, error) {
-	if contentType := r.Raw.Header.Get("Content-Type"); !strings.Contains(contentType, "application/json") {
-		if len(contentType) == 0 {
-			contentType = "unknown"
-		}
-
-		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: fmt.Sprintf("user has not uploaded json data, got: %s", contentType)})
-	}
-
-	payload := deleteApplicationPayload{}
-	if err := json.NewDecoder(r.Raw.Body).Decode(&payload); err != nil {
-		return server.ReturnError(fmt.Errorf("could not decode payload: %w", err))
-	}
-
-	fileName := payload.Name
-
-	if len(fileName) == 0 {
-		return server.ReturnResponse(http.StatusBadRequest, messageResponseBody{Message: "no application name has been specified"})
-	}
-
-	if err := os.Remove(path.Join(c.config.Application.Upload.Directory, fileName)); err != nil {
-		return server.ReturnResponse(http.StatusNotFound, messageResponseBody{Message: fmt.Sprintf("no application with name %s was found", fileName)})
-	}
-
-	fmt.Printf("deleted file %s\n", fileName)
-	return server.ReturnResponse(http.StatusNoContent)
 }
 
 func (c *controlPlane) invokeVm(r server.Request) (server.Response, error) {
@@ -216,31 +183,28 @@ func main() {
 		panic(fmt.Sprintf("could not establish a connection with rabbitmq: %s", err.Error()))
 	}
 
-	applicationFileUploadPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, queueNameApplicationFileUpload)
+	applicationFileUploadConsumer, err := rabbitmqConnection.NewConsumer(mainCtx, queueNameApplicationFileUpload)
 	if err != nil {
-		panic(fmt.Sprint("could not create application file upload publisher: %s", err.Error()))
+		panic(fmt.Sprintf("could not create application file upload consumer: %s", err.Error()))
 	}
 
-	applicationService := application.NewService(
-		config.Application.Upload.Directory,
-		config.Application.Upload.Output,
-	)
-
+	applicationFileUploadPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, queueNameApplicationFileUpload)
 	if err != nil {
-		panic(fmt.Sprintf("could not create application service: %s", err.Error()))
+		panic(fmt.Sprintf("could not create application file upload publisher: %s", err.Error()))
 	}
 
 	ctrl := controlPlane{
 		manager:                        firecrackerManager,
 		server:                         *server.NewHttpServer(),
 		config:                         config,
-		applicationService:             applicationService,
 		applicationFileUploadPublisher: applicationFileUploadPublisher,
 	}
 
+	applicationFileUploadConsumer.Listen(mainCtx, ctrl.onFileUpload)
+	defer applicationFileUploadConsumer.Stop()
+
 	err = ctrl.server.
 		RegisterRoute(server.HttpPost, "/api/v1/application", ctrl.uploadApplication).
-		RegisterRoute(server.HttpDelete, "/api/v1/application", ctrl.deleteApplication).
 		RegisterRoute(server.HttpPost, "/api/v1/vm", ctrl.invokeVm).
 		RegisterRoute(server.HttpDelete, "/api/v1/vm/{id}", ctrl.deleteVm).
 		Run(":8080")
@@ -248,4 +212,21 @@ func main() {
 	if err != nil {
 		panic(fmt.Sprintf("server has closed: %s", err.Error()))
 	}
+}
+
+func (c *controlPlane) onFileUpload(msg rabbitmq.Message, err error) rabbitmq.MessageOutcome {
+	var event applicationFileUploadEvent
+	if err := msg.AsJson(&event); err != nil {
+		fmt.Printf("failed to consume file upload message: %v", err)
+		return rabbitmq.MessageOutcomeRequeue
+	}
+
+	processor := application.NewFileUploadProcessor()
+	if err := processor.UnpackArchive(event.Path, c.config.Application.Upload.Output); err != nil {
+		fmt.Printf("failed to unpack archive: %v", err)
+		return rabbitmq.MessageOutcomeRequeue
+	}
+
+	fmt.Printf("processed file upload successfully: %s\n", event.Path)
+	return rabbitmq.MessageOutcomeAccept
 }
