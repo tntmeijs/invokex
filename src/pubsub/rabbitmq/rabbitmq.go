@@ -13,7 +13,7 @@ type (
 	MessageOutcome int
 
 	ConnectionOption  func(context.Context, *rabbitmqamqp.AmqpManagement) error
-	OnMessageReceived func(Message, error) MessageOutcome
+	OnMessageReceived func(Message) MessageOutcome
 
 	// Instance provides a way to interact with RabbitMQ instances.
 	Instance struct {
@@ -48,7 +48,7 @@ const (
 )
 
 // NewInstance interfaces with RabbitMQ.
-func NewInstance(ctx context.Context, username, password, host string) Instance {
+func NewInstance(username, password, host string) Instance {
 	e := rabbitmqamqp.NewEnvironment(fmt.Sprintf("amqp://%s:%s@%s", username, password, host), nil)
 	return Instance{Environment: e}
 }
@@ -119,14 +119,20 @@ func (c *Consumer) Listen(ctx context.Context, onMessage OnMessageReceived) {
 		for {
 			select {
 			case <-c.done:
+				c.Raw.Close(consumerCtx)
 				return
 			default:
 				deliveryCtx, err := c.Raw.Receive(consumerCtx)
-				if errors.Is(err, context.Canceled) {
-					return
+				if err != nil {
+					if errors.Is(err, context.Canceled) {
+						return
+					} else {
+						// Unhandled error - send it back to the queue.
+						deliveryCtx.Requeue(consumerCtx)
+					}
 				}
 
-				switch onMessage(Message{Data: deliveryCtx.Message().GetData()}, err) {
+				switch onMessage(Message{Data: deliveryCtx.Message().GetData()}) {
 				case MessageOutcomeAccept:
 					deliveryCtx.Accept(consumerCtx)
 				case MessageOutcomeDiscard:
@@ -172,6 +178,11 @@ func (p Publisher) SendJson(ctx context.Context, message any) error {
 	}
 
 	return nil
+}
+
+// Stop disconnects the publisher.
+func (p Publisher) Stop(ctx context.Context) error {
+	return p.Raw.Close(ctx)
 }
 
 // AsJson is a utility method that attempts to unmarshal the message as JSON.

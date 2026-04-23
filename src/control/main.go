@@ -32,11 +32,7 @@ type (
 	}
 
 	controlPlane struct {
-		server                         *server.HttpServer
-		manager                        firecracker.FirecrackerManager
-		config                         config.Config
-		applicationFileUploadPublisher rabbitmq.Publisher // TODO: this should live somewhere else
-		container                      *dig.Container
+		container *dig.Container
 	}
 )
 
@@ -57,7 +53,109 @@ var supportedRuntimes = []firecracker.Runtime{
 	"golang",
 }
 
-func (c *controlPlane) uploadApplication(r server.Request) (server.Response, error) {
+// The newControlPlane method instantiates a new controlPlane instance.
+func newControlPlane() (controlPlane, error) {
+	dependencyContainer := dig.New()
+	for _, f := range dependencyProviderFuncs {
+		if err := dependencyContainer.Provide(f); err != nil {
+			return controlPlane{}, fmt.Errorf("could not provide dependency: %w", err)
+		}
+	}
+
+	return controlPlane{container: dependencyContainer}, nil
+}
+
+// MustGetDependency attempts to fetch a dependency from the dependency container in controlPlane and panics if the dependency is not available.
+func MustGetDependency[T any](ctrl controlPlane) T {
+	t, err := GetDependency[T](ctrl)
+	if err != nil {
+		panic(err)
+	}
+
+	return t
+}
+
+// GetDependency attempts to fetch a dependency from the dependency container in controlPlane.
+func GetDependency[T any](ctrl controlPlane) (T, error) {
+	var zeroT T
+
+	if err := ctrl.container.Invoke(func(t T) { zeroT = t }); err != nil {
+		return zeroT, fmt.Errorf("failed to fetch dependency of type %T: %w", zeroT, err)
+	}
+
+	return zeroT, nil
+}
+
+// TODO: wrap application with a signal listener so we can clean up any pending VMs when we receive SIGTERM.
+func main() {
+	mainCtx := context.Background()
+
+	ctrl, err := newControlPlane()
+	if err != nil {
+		panic(fmt.Sprintf("could not create control plane: %s", err.Error()))
+	}
+
+	firecrackerManager := MustGetDependency[firecracker.FirecrackerManager](ctrl)
+	rabbitmqInstance := MustGetDependency[rabbitmq.Instance](ctrl)
+	globalConfig := MustGetDependency[config.Config](ctrl)
+	fileProcessor := MustGetDependency[application.FileUploadProcessor](ctrl)
+
+	firecrackerManager.RegisterVmConfig(firecracker.NewGolangConfig(firecracker.LogLevelDebug))
+	firecrackerManager.RegisterVmConfig(firecracker.NewNodeConfig(25, firecracker.LogLevelDebug))
+
+	defer rabbitmqInstance.Close(mainCtx)
+
+	rabbitmqConnection, err := rabbitmqInstance.Connect(mainCtx, rabbitmq.WithClassicQueue(queueNameApplicationFileUpload))
+	if err != nil {
+		panic(fmt.Sprintf("could not establish a connection with rabbitmq: %s", err.Error()))
+	}
+
+	applicationFileUploadConsumer, err := rabbitmqConnection.NewConsumer(mainCtx, queueNameApplicationFileUpload)
+	if err != nil {
+		panic(fmt.Sprintf("could not create application file upload consumer: %s", err.Error()))
+	}
+
+	applicationFileUploadConsumer.Listen(mainCtx, func(msg rabbitmq.Message) rabbitmq.MessageOutcome {
+		return onFileUploadEvent(fileProcessor, globalConfig.Application.Upload.Output, msg)
+	})
+	defer applicationFileUploadConsumer.Stop()
+
+	applicationFileUploadPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, queueNameApplicationFileUpload)
+	if err != nil {
+		panic(fmt.Sprintf("could not create application file upload publisher: %s", err.Error()))
+	}
+	defer applicationFileUploadPublisher.Stop(mainCtx)
+
+	err = server.NewHttpServer().
+		RegisterRoute(server.HttpPost, "/api/v1/application", func(r server.Request) (server.Response, error) {
+			return uploadApplication(globalConfig, applicationFileUploadPublisher, r)
+		}).
+		RegisterRoute(server.HttpPost, "/api/v1/vm", func(r server.Request) (server.Response, error) { return invokeVm(firecrackerManager, r) }).
+		RegisterRoute(server.HttpDelete, "/api/v1/vm/{id}", func(r server.Request) (server.Response, error) { return deleteVm(firecrackerManager, r) }).
+		Run(":8080")
+
+	if err != nil {
+		panic(fmt.Sprintf("server has closed: %s", err.Error()))
+	}
+}
+
+func onFileUploadEvent(processor application.FileUploadProcessor, outputDirectory string, msg rabbitmq.Message) rabbitmq.MessageOutcome {
+	var event applicationFileUploadEvent
+	if err := msg.AsJson(&event); err != nil {
+		fmt.Printf("failed to consume file upload event: %v\n", err)
+		return rabbitmq.MessageOutcomeRequeue
+	}
+
+	if err := processor.UnpackArchive(event.Path, outputDirectory); err != nil {
+		fmt.Printf("failed to unpack archive: %v\n", err)
+		return rabbitmq.MessageOutcomeRequeue
+	}
+
+	fmt.Printf("processed file upload successfully: %s\n", event.Path)
+	return rabbitmq.MessageOutcomeAccept
+}
+
+func uploadApplication(config config.Config, publisher rabbitmq.Publisher, r server.Request) (server.Response, error) {
 	if contentType := r.Raw.Header.Get("Content-Type"); !strings.Contains(contentType, "multipart/form-data") {
 		if len(contentType) == 0 {
 			contentType = "unknown"
@@ -115,22 +213,22 @@ func (c *controlPlane) uploadApplication(r server.Request) (server.Response, err
 	}
 
 	applicationId := application.NewApplicationId()
-	outFile := path.Join(c.config.Application.Upload.Directory, applicationId.String())
+	outFile := path.Join(config.Application.Upload.Directory, applicationId.String())
 	if err = os.WriteFile(outFile, buffer[:header.Size], 0644); err != nil {
 		return server.ReturnError(fmt.Errorf("could not create file for application: %w", err))
 	}
 
 	fmt.Printf("user has uploaded application %s for runtime %s\n", applicationId, runtime)
 
-	if err = c.applicationFileUploadPublisher.SendJson(r.Raw.Context(), applicationFileUploadEvent{Path: outFile}); err != nil {
+	if err = publisher.SendJson(r.Raw.Context(), applicationFileUploadEvent{Path: outFile}); err != nil {
 		return server.ReturnError(fmt.Errorf("failed to send file upload event: %w", err))
 	}
 
 	return server.ReturnResponse(http.StatusOK, uploadApplicationResponseBody{Id: applicationId.String()})
 }
 
-func (c *controlPlane) invokeVm(r server.Request) (server.Response, error) {
-	vmId, err := c.manager.InstantiateVm(firecracker.NewRuntime("golang"))
+func invokeVm(firecrackerManager firecracker.FirecrackerManager, _ server.Request) (server.Response, error) {
+	vmId, err := firecrackerManager.InstantiateVm(firecracker.NewRuntime("golang")) // TODO: do not hardcode this
 	if err != nil {
 		return server.ReturnError(err)
 	}
@@ -143,100 +241,15 @@ func (c *controlPlane) invokeVm(r server.Request) (server.Response, error) {
 	)
 }
 
-func (c *controlPlane) deleteVm(r server.Request) (server.Response, error) {
+func deleteVm(firecrackerManager firecracker.FirecrackerManager, r server.Request) (server.Response, error) {
 	vmId := strings.TrimSpace(r.Raw.PathValue("id"))
 	if len(vmId) == 0 {
 		return server.ReturnResponse(http.StatusBadRequest)
 	}
 
-	if err := c.manager.KillVm(vmId); err != nil {
+	if err := firecrackerManager.KillVm(vmId); err != nil {
 		return server.ReturnError(err)
 	}
 
 	return server.ReturnResponse(http.StatusOK)
-}
-
-func main() {
-	// TODO: wrap application with a signal listener so we can clean up any pending VMs when we receive SIGTERM.
-	config := config.MustLoadFromArgs()
-	if err := config.CreateDirectories(); err != nil {
-		panic(fmt.Sprintf("could not create one or multiple directories specified in the configuration file: %w", err))
-	}
-
-	firecrackerManager := firecracker.NewManager(firecracker.FirecrackerConfig{
-		FirecrackerPath:     config.Firecracker.Instance.Path,
-		KernelImagePath:     config.Firecracker.Kernel.Path,
-		KernelRootFsPath:    config.Firecracker.RootFilesystem.Path,
-		LogDirectory:        config.Firecracker.Directories.FirecrackerLogs,
-		VmConfigDirectory:   config.Firecracker.Directories.VmConfigurations,
-		ApiSocketsDirectory: config.Firecracker.Directories.ApiSockets,
-		VmLogsDirectory:     config.Firecracker.Directories.VmLogs,
-	})
-
-	firecrackerManager.RegisterVmConfig(firecracker.NewGolangConfig(firecracker.LogLevelDebug))
-	firecrackerManager.RegisterVmConfig(firecracker.NewNodeConfig(25, firecracker.LogLevelDebug))
-
-	mainCtx := context.Background()
-	rabbitmqInstance := rabbitmq.NewInstance(mainCtx, config.MessageBroker.Username, config.MessageBroker.Password, config.MessageBroker.Host)
-	defer rabbitmqInstance.Close(mainCtx)
-
-	rabbitmqConnection, err := rabbitmqInstance.Connect(mainCtx, rabbitmq.WithClassicQueue(queueNameApplicationFileUpload))
-	if err != nil {
-		panic(fmt.Sprintf("could not establish a connection with rabbitmq: %s", err.Error()))
-	}
-
-	applicationFileUploadConsumer, err := rabbitmqConnection.NewConsumer(mainCtx, queueNameApplicationFileUpload)
-	if err != nil {
-		panic(fmt.Sprintf("could not create application file upload consumer: %s", err.Error()))
-	}
-
-	applicationFileUploadPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, queueNameApplicationFileUpload)
-	if err != nil {
-		panic(fmt.Sprintf("could not create application file upload publisher: %s", err.Error()))
-	}
-
-	dependencyContainer := dig.New()
-	for _, f := range dependencyProviderFuncs {
-		if err = dependencyContainer.Provide(f); err != nil {
-			panic(fmt.Sprintf("could not provide dependency: %s", err.Error()))
-		}
-	}
-
-	ctrl := controlPlane{
-		manager:                        firecrackerManager,
-		server:                         server.NewHttpServer(),
-		config:                         config,
-		applicationFileUploadPublisher: applicationFileUploadPublisher,
-		container:                      dependencyContainer,
-	}
-
-	applicationFileUploadConsumer.Listen(mainCtx, ctrl.onFileUpload)
-	defer applicationFileUploadConsumer.Stop()
-
-	err = ctrl.server.
-		RegisterRoute(server.HttpPost, "/api/v1/application", ctrl.uploadApplication).
-		RegisterRoute(server.HttpPost, "/api/v1/vm", ctrl.invokeVm).
-		RegisterRoute(server.HttpDelete, "/api/v1/vm/{id}", ctrl.deleteVm).
-		Run(":8080")
-
-	if err != nil {
-		panic(fmt.Sprintf("server has closed: %s", err.Error()))
-	}
-}
-
-func (c *controlPlane) onFileUpload(msg rabbitmq.Message, err error) rabbitmq.MessageOutcome {
-	var event applicationFileUploadEvent
-	if err := msg.AsJson(&event); err != nil {
-		fmt.Printf("failed to consume file upload message: %v", err)
-		return rabbitmq.MessageOutcomeRequeue
-	}
-
-	processor := application.NewFileUploadProcessor()
-	if err := processor.UnpackArchive(event.Path, c.config.Application.Upload.Output); err != nil {
-		fmt.Printf("failed to unpack archive: %v", err)
-		return rabbitmq.MessageOutcomeRequeue
-	}
-
-	fmt.Printf("processed file upload successfully: %s\n", event.Path)
-	return rabbitmq.MessageOutcomeAccept
 }
