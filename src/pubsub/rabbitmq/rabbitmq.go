@@ -128,7 +128,8 @@ func (c *Consumer) Listen(ctx context.Context, onMessage OnMessageReceived) {
 						return
 					} else {
 						// Unhandled error - send it back to the queue.
-						deliveryCtx.Requeue(consumerCtx)
+						// TODO: see if we can include the error here somehow
+						deliveryCtx.Discard(consumerCtx, nil)
 					}
 				}
 
@@ -190,10 +191,26 @@ func (m Message) AsJson(out any) error {
 	return json.Unmarshal(m.Data, out)
 }
 
-// WithClassicQueue ensures a classic queue is present (if it did not exist) when the connection is established.
+// WithClassicQueue ensures a classic queue with the specified name is present when the connection is established.
 func WithClassicQueue(name string) ConnectionOption {
 	return func(ctx context.Context, m *rabbitmqamqp.AmqpManagement) error {
 		_, err := m.DeclareQueue(ctx, &rabbitmqamqp.ClassicQueueSpecification{Name: name})
+		return err
+	}
+}
+
+// WithTopicExchange ensures a topic exchange with the specified name is present when the connection is established.
+func WithTopicExchange(name string) ConnectionOption {
+	return func(ctx context.Context, m *rabbitmqamqp.AmqpManagement) error {
+		_, err := m.DeclareExchange(ctx, &rabbitmqamqp.TopicExchangeSpecification{Name: name})
+		return err
+	}
+}
+
+// WithExchangeToQueueBinding binds an exchange (source) to a queue (destination) based on the binding key (key) specified.
+func WithExchangeToQueueBinding(source, destination, key string) ConnectionOption {
+	return func(ctx context.Context, m *rabbitmqamqp.AmqpManagement) error {
+		_, err := m.Bind(ctx, &rabbitmqamqp.ExchangeToQueueBindingSpecification{SourceExchange: source, DestinationQueue: destination, BindingKey: key})
 		return err
 	}
 }

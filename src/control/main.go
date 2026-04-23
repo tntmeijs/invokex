@@ -23,7 +23,7 @@ type (
 		Id string `json:"id"`
 	}
 
-	applicationFileUploadEvent struct {
+	unpackArchiveEvent struct {
 		Path string `json:"path"`
 	}
 
@@ -40,7 +40,10 @@ const (
 	runtimeField         string = "runtime"
 	applicationFileField string = "application"
 
-	queueNameApplicationFileUpload string = "application-file-uploaded"
+	exchangeNameUserApplication                       string = "invokex.user.application"
+	exchangeBindingKeyNewUserApplicationArchiveUnpack string = "user.application.archive.unpack"
+
+	queueNameUnpackArchive string = "user.application.archive.unpack"
 
 	applicationFileExtension string = "zip"
 
@@ -105,12 +108,17 @@ func main() {
 
 	defer rabbitmqInstance.Close(mainCtx)
 
-	rabbitmqConnection, err := rabbitmqInstance.Connect(mainCtx, rabbitmq.WithClassicQueue(queueNameApplicationFileUpload))
+	rabbitmqConnection, err := rabbitmqInstance.Connect(
+		mainCtx,
+		rabbitmq.WithClassicQueue(queueNameUnpackArchive),
+		rabbitmq.WithTopicExchange(exchangeNameUserApplication),
+		rabbitmq.WithExchangeToQueueBinding(exchangeNameUserApplication, queueNameUnpackArchive, exchangeBindingKeyNewUserApplicationArchiveUnpack),
+	)
 	if err != nil {
 		panic(fmt.Sprintf("could not establish a connection with rabbitmq: %s", err.Error()))
 	}
 
-	applicationFileUploadConsumer, err := rabbitmqConnection.NewConsumer(mainCtx, queueNameApplicationFileUpload)
+	applicationFileUploadConsumer, err := rabbitmqConnection.NewConsumer(mainCtx, queueNameUnpackArchive)
 	if err != nil {
 		panic(fmt.Sprintf("could not create application file upload consumer: %s", err.Error()))
 	}
@@ -120,7 +128,7 @@ func main() {
 	})
 	defer applicationFileUploadConsumer.Stop()
 
-	applicationFileUploadPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, queueNameApplicationFileUpload)
+	applicationFileUploadPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, queueNameUnpackArchive)
 	if err != nil {
 		panic(fmt.Sprintf("could not create application file upload publisher: %s", err.Error()))
 	}
@@ -140,7 +148,7 @@ func main() {
 }
 
 func onFileUploadEvent(processor application.FileUploadProcessor, outputDirectory string, msg rabbitmq.Message) rabbitmq.MessageOutcome {
-	var event applicationFileUploadEvent
+	var event unpackArchiveEvent
 	if err := msg.AsJson(&event); err != nil {
 		fmt.Printf("failed to consume file upload event: %v\n", err)
 		return rabbitmq.MessageOutcomeRequeue
@@ -220,7 +228,7 @@ func uploadApplication(config config.Config, publisher rabbitmq.Publisher, r ser
 
 	fmt.Printf("user has uploaded application %s for runtime %s\n", applicationId, runtime)
 
-	if err = publisher.SendJson(r.Raw.Context(), applicationFileUploadEvent{Path: outFile}); err != nil {
+	if err = publisher.SendJson(r.Raw.Context(), unpackArchiveEvent{Path: outFile}); err != nil {
 		return server.ReturnError(fmt.Errorf("failed to send file upload event: %w", err))
 	}
 
