@@ -7,12 +7,13 @@ import (
 	"fmt"
 
 	"github.com/rabbitmq/rabbitmq-amqp-go-client/pkg/rabbitmqamqp"
+	"github.com/tntmeijs/invokex/src/configuration"
 )
 
 type (
 	MessageOutcome int
 
-	ConnectionOption  func(context.Context, *rabbitmqamqp.AmqpManagement) error
+	connectionOption  func(context.Context, *rabbitmqamqp.AmqpManagement) error
 	OnMessageReceived func(context.Context, Message) MessageOutcome
 
 	// Instance provides a way to interact with RabbitMQ instances.
@@ -54,10 +55,29 @@ func NewInstance(username, password, host string) Instance {
 }
 
 // Connect opens a connection to RabbitMQ.
-func (i *Instance) Connect(ctx context.Context, options ...ConnectionOption) (Connection, error) {
+// TODO: might be good to decouple this by creating a package-specific configuration and adding a mapping layer
+func (i *Instance) Connect(ctx context.Context, queues map[string]configuration.QueueDetails, exchanges map[string]configuration.ExchangeDetails) (Connection, error) {
 	c, err := i.Environment.NewConnection(ctx)
 	if err != nil {
 		return Connection{}, fmt.Errorf("failed to create rabbitmq connection: %w", err)
+	}
+
+	var options []connectionOption
+	for _, details := range queues {
+		options = append(options, withClassicQueue(details.Name))
+	}
+
+	for _, details := range exchanges {
+		options = append(options, withTopicExchange(details.Name))
+
+		for _, binding := range details.Bindings {
+			queue, exists := queues[binding.QueueId]
+			if !exists {
+				return Connection{}, fmt.Errorf(`no queue declared for queue id "%s"`, binding.QueueId)
+			}
+
+			options = append(options, withExchangeToQueueBinding(details.Name, queue.Name, binding.BindingKey))
+		}
 	}
 
 	connection := Connection{Raw: c}
@@ -191,24 +211,24 @@ func (m Message) AsJson(out any) error {
 	return json.Unmarshal(m.Data, out)
 }
 
-// WithClassicQueue ensures a classic queue with the specified name is present when the connection is established.
-func WithClassicQueue(name string) ConnectionOption {
+// The withClassicQueueensures option a classic queue with the specified name is present when the connection is established.
+func withClassicQueue(name string) connectionOption {
 	return func(ctx context.Context, m *rabbitmqamqp.AmqpManagement) error {
 		_, err := m.DeclareQueue(ctx, &rabbitmqamqp.ClassicQueueSpecification{Name: name})
 		return err
 	}
 }
 
-// WithTopicExchange ensures a topic exchange with the specified name is present when the connection is established.
-func WithTopicExchange(name string) ConnectionOption {
+// The withTopicExchange option ensures a topic exchange with the specified name is present when the connection is established.
+func withTopicExchange(name string) connectionOption {
 	return func(ctx context.Context, m *rabbitmqamqp.AmqpManagement) error {
 		_, err := m.DeclareExchange(ctx, &rabbitmqamqp.TopicExchangeSpecification{Name: name})
 		return err
 	}
 }
 
-// WithExchangeToQueueBinding binds an exchange (source) to a queue (destination) based on the binding key (key) specified.
-func WithExchangeToQueueBinding(source, destination, key string) ConnectionOption {
+// The withExchangeToQueueBinding option binds an exchange (source) to a queue (destination) based on the binding key (key) specified.
+func withExchangeToQueueBinding(source, destination, key string) connectionOption {
 	return func(ctx context.Context, m *rabbitmqamqp.AmqpManagement) error {
 		_, err := m.Bind(ctx, &rabbitmqamqp.ExchangeToQueueBindingSpecification{SourceExchange: source, DestinationQueue: destination, BindingKey: key})
 		return err

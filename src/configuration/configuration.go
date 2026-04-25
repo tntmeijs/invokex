@@ -43,9 +43,25 @@ type (
 	}
 
 	MessageBroker struct {
-		Host     string `json:"host"`
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Host      string                     `json:"host"`
+		Username  string                     `json:"username"`
+		Password  string                     `json:"password"`
+		Queues    map[string]QueueDetails    `json:"queues"`
+		Exchanges map[string]ExchangeDetails `json:"exchanges"`
+	}
+
+	QueueDetails struct {
+		Name string `json:"name"`
+	}
+
+	ExchangeDetails struct {
+		Name     string            `json:"name"`
+		Bindings []ExchangeBinding `json:"bindings"`
+	}
+
+	ExchangeBinding struct {
+		QueueId    string `json:"id"`
+		BindingKey string `json:"key"`
 	}
 )
 
@@ -93,4 +109,24 @@ func (c Configuration) CreateDirectories() error {
 	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.VmLogs, 0744))
 
 	return errs
+}
+
+// MustGetQueueDetails fetches QueueDetails for the specified id.
+// Panics if no entry for the given id has been configured.
+func (m MessageBroker) MustGetQueueDetails(id string) QueueDetails {
+	if details, exists := m.Queues[id]; exists {
+		return details
+	}
+
+	panic(fmt.Sprintf(`no queue configured for id "%s"`, id))
+}
+
+// MustGetExchangeDetails fetches ExchangeDetails for the specified id.
+// Panics if no entry for the given id has been configured.
+func (m MessageBroker) MustGetExchangeDetails(id string) ExchangeDetails {
+	if details, exists := m.Exchanges[id]; exists {
+		return details
+	}
+
+	panic(fmt.Sprintf(`no exchange configured for id "%s"`, id))
 }

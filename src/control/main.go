@@ -37,13 +37,6 @@ const (
 	runtimeField         string = "runtime"
 	applicationFileField string = "application"
 
-	exchangeNameUserApplication                                     string = "invokex.user.application"
-	exchangeBindingKeyNewUserApplicationArchiveUnpack               string = "user.application.archive.unpack"
-	exchangeBindingKeyNewUserApplicationArchiveCreateFilesystemExt4 string = "user.application.archive.filesystem.ext4"
-
-	queueNameUnpackArchive    string = "user.application.archive.unpack"
-	queueNameCreateFilesystem string = "user.application.archive.filesystem"
-
 	applicationFileExtension string = "zip"
 
 	kilobyte           int64 = 1024
@@ -107,35 +100,31 @@ func main() {
 
 	defer rabbitmqInstance.Close(mainCtx)
 
-	rabbitmqConnection, err := rabbitmqInstance.Connect(
-		mainCtx,
-		rabbitmq.WithClassicQueue(queueNameUnpackArchive),
-		rabbitmq.WithClassicQueue(queueNameCreateFilesystem),
-		rabbitmq.WithTopicExchange(exchangeNameUserApplication),
-		rabbitmq.WithExchangeToQueueBinding(exchangeNameUserApplication, queueNameUnpackArchive, exchangeBindingKeyNewUserApplicationArchiveUnpack),
-		rabbitmq.WithExchangeToQueueBinding(exchangeNameUserApplication, queueNameCreateFilesystem, exchangeBindingKeyNewUserApplicationArchiveCreateFilesystemExt4),
-	)
+	rabbitmqConnection, err := rabbitmqInstance.Connect(mainCtx, globalConfig.MessageBroker.Queues, globalConfig.MessageBroker.Exchanges)
 	if err != nil {
 		panic(fmt.Sprintf("could not establish a connection with rabbitmq: %s", err.Error()))
 	}
 
-	applicationFileUploadConsumer, err := rabbitmqConnection.NewConsumer(mainCtx, queueNameUnpackArchive)
+	unpackArchive := globalConfig.MessageBroker.MustGetQueueDetails("unpack_archive")
+	createFilesystem := globalConfig.MessageBroker.MustGetQueueDetails("create_filesystem")
+
+	applicationFileUploadConsumer, err := rabbitmqConnection.NewConsumer(mainCtx, unpackArchive.Name)
 	if err != nil {
 		panic(fmt.Sprintf("could not create application file upload consumer: %s", err.Error()))
 	}
 
-	createFilesystemConsumer, err := rabbitmqConnection.NewConsumer(mainCtx, queueNameCreateFilesystem)
+	createFilesystemConsumer, err := rabbitmqConnection.NewConsumer(mainCtx, createFilesystem.Name)
 	if err != nil {
 		panic(fmt.Sprintf("could not create filesystem consumer: %s", err.Error()))
 	}
 
-	applicationFileUploadPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, queueNameUnpackArchive)
+	applicationFileUploadPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, unpackArchive.Name)
 	if err != nil {
 		panic(fmt.Sprintf("could not create application file upload publisher: %s", err.Error()))
 	}
 	defer applicationFileUploadPublisher.Stop(mainCtx)
 
-	applicationFileCreateFilesystemPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, queueNameCreateFilesystem)
+	applicationFileCreateFilesystemPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, createFilesystem.Name)
 	if err != nil {
 		panic(fmt.Sprintf("could not create application ext4 filesystem publisher: %s", err.Error()))
 	}

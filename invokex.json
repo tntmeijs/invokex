@@ -2,7 +2,30 @@
     "messagebroker": {
         "host": "localhost:5672",
         "username": "invokex",
-        "password": "admin"
+        "password": "admin",
+        "queues": {
+            "unpack_archive": {
+                "name": "user.application.archive.unpack"
+            },
+            "create_filesystem": {
+                "name": "user.application.archive.filesystem"
+            }
+        },
+        "exchanges": {
+            "application": {
+                "name": "invokex.user.application",
+                "bindings": [
+                    {
+                        "id": "unpack_archive",
+                        "key": "user.application.archive.unpack"
+                    },
+                    {
+                        "id": "create_filesystem",
+                        "key": "user.application.archive.filesystem"
+                    }
+                ]
+            }
+        }
     },
     "application": {
         "upload": {
