@@ -37,7 +37,7 @@ func provideFirecrackerManager(c firecracker.FirecrackerConfig) firecracker.Fire
 }
 
 func provideRabbitMqInstance(c configuration.Configuration) rabbitmq.Instance {
-	return rabbitmq.NewInstance(c.MessageBroker.Username, c.MessageBroker.Password, c.MessageBroker.Host)
+	return rabbitmq.NewInstance("control plane", c.MessageBroker.Username, c.MessageBroker.Password, c.MessageBroker.Host)
 }
 
 func provideFileUploadProcessor() application.FileUploadProcessor {

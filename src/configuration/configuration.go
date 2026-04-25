@@ -74,9 +74,6 @@ func Load(path string) (Configuration, error) {
 		return c, fmt.Errorf("unable to read configuration file: %w", err)
 	}
 
-	fmt.Print("loaded control plane configuration from file\n\n")
-	fmt.Printf("%s\n\n", string(bytes))
-
 	if err = json.Unmarshal(bytes, &c); err != nil {
 		return c, fmt.Errorf("unable to unmarshal configuration file: %w", err)
 	}

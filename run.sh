@@ -10,6 +10,14 @@ then
     exit 1
 fi
 
+# Kill all processes whose parent PID is the current PID of the script sending SIGINT.
+# https://stackoverflow.com/a/35660327
+trap terminate SIGINT
+terminate(){
+    pkill -SIGINT -P $$
+    exit
+}
+
 runtime="$1"
 architecture="$(uname -m)"
 
@@ -50,13 +58,27 @@ else
     echo "Firecracker already installed - if you would like to install it from scratch, remove the ./.invokex/firecracker directory first."
 fi
 
+### ################ ###
+### PROCESSOR WORKER ###
+### ################ ###
+
+# This is a worker of the control plane. The reason it is its own application is that this improves resiliency.
+# Additionally, the worker creates filesystems, which requires elevated permissions.
+# Isolating elevated privileges to just this application, results in increased system safety (principle of least privilege).
+
+go build -C "${repo_root}/src/processor"
+chmod +x "${repo_root}/src/processor"
+
 ### ############# ###
 ### CONTROL PLANE ###
 ### ############# ###
 
-# Compile, build, and run the control plane with elevated privileges.
 go build -C "${repo_root}/src/control"
 chmod +x "${repo_root}/src/control"
-"${repo_root}/src/control/control"
+
+# Launch all applications.
+"${repo_root}/src/processor/processor" &
+"${repo_root}/src/control/control" &
+wait
 
 popd > /dev/null

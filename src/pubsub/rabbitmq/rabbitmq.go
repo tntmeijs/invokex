@@ -13,8 +13,10 @@ import (
 type (
 	MessageOutcome int
 
-	connectionOption  func(context.Context, *rabbitmqamqp.AmqpManagement) error
+	connectionOption func(context.Context, *rabbitmqamqp.AmqpManagement) error
+
 	OnMessageReceived func(context.Context, Message) MessageOutcome
+	OnConsumerStopped func()
 
 	// Instance provides a way to interact with RabbitMQ instances.
 	Instance struct {
@@ -28,8 +30,9 @@ type (
 
 	// Consumer represents a consumer that processes messages from a queue.
 	Consumer struct {
-		Raw  *rabbitmqamqp.Consumer
-		done chan bool
+		Raw    *rabbitmqamqp.Consumer
+		done   chan bool
+		onStop OnConsumerStopped
 	}
 
 	Publisher struct {
@@ -49,8 +52,8 @@ const (
 )
 
 // NewInstance interfaces with RabbitMQ.
-func NewInstance(username, password, host string) Instance {
-	e := rabbitmqamqp.NewEnvironment(fmt.Sprintf("amqp://%s:%s@%s", username, password, host), nil)
+func NewInstance(applicationName, username, password, host string) Instance {
+	e := rabbitmqamqp.NewEnvironment(fmt.Sprintf("amqp://%s:%s@%s", username, password, host), &rabbitmqamqp.AmqpConnOptions{ContainerID: applicationName})
 	return Instance{Environment: e}
 }
 
@@ -104,13 +107,20 @@ func (i *Instance) Close(ctx context.Context) error {
 }
 
 // NewConsumer creates a new Consumer for a Connection.
-func (c *Connection) NewConsumer(ctx context.Context, queue string) (Consumer, error) {
-	consumer, err := c.Raw.NewConsumer(ctx, queue, nil)
+// Optionally, a callback function can be registered that will be invoked once the consumer stops.
+func (c *Connection) NewConsumer(ctx context.Context, queue string, onStop ...OnConsumerStopped) (Consumer, error) {
+	raw, err := c.Raw.NewConsumer(ctx, queue, nil)
 	if err != nil {
 		return Consumer{}, fmt.Errorf("failed to create new consumer: %w", err)
 	}
 
-	return Consumer{Raw: consumer, done: make(chan bool)}, nil
+	consumer := Consumer{Raw: raw, done: make(chan bool)}
+
+	if len(onStop) > 0 && onStop[0] != nil {
+		consumer.onStop = onStop[0]
+	}
+
+	return consumer, nil
 }
 
 // NewExchangePublisher creates a new Publisher that targets a specific exchange (and optionally a routing key).
@@ -139,27 +149,29 @@ func (c *Consumer) Listen(ctx context.Context, onMessage OnMessageReceived) {
 		for {
 			select {
 			case <-c.done:
+				// TODO: this is weird just use a context and cancel it - way easier to reason about
 				c.Raw.Close(consumerCtx)
 				return
 			default:
 				deliveryCtx, err := c.Raw.Receive(consumerCtx)
 				if err != nil {
 					if errors.Is(err, context.Canceled) {
+						c.done <- true
 						return
-					} else {
-						// Unhandled error - send it back to the queue.
-						// TODO: see if we can include the error here somehow
-						deliveryCtx.Discard(consumerCtx, nil)
 					}
-				}
 
-				switch onMessage(consumerCtx, Message{Data: deliveryCtx.Message().GetData()}) {
-				case MessageOutcomeAccept:
-					deliveryCtx.Accept(consumerCtx)
-				case MessageOutcomeDiscard:
-					deliveryCtx.Discard(consumerCtx, nil)
-				case MessageOutcomeRequeue:
-					deliveryCtx.Requeue(consumerCtx)
+					// Unhandled error - send it back to the queue.
+					// TODO: see if we can include the error here somehow
+					fmt.Printf("unexpected error occurred in customer listener: %s", err.Error())
+				} else {
+					switch onMessage(consumerCtx, Message{Data: deliveryCtx.Message().GetData()}) {
+					case MessageOutcomeAccept:
+						deliveryCtx.Accept(consumerCtx)
+					case MessageOutcomeDiscard:
+						deliveryCtx.Discard(consumerCtx, nil)
+					case MessageOutcomeRequeue:
+						deliveryCtx.Requeue(consumerCtx)
+					}
 				}
 			}
 		}
@@ -167,9 +179,13 @@ func (c *Consumer) Listen(ctx context.Context, onMessage OnMessageReceived) {
 }
 
 // Stop quits the message processing Goroutine.
-func (c *Consumer) Stop() {
+func (c *Consumer) Stop(ctx context.Context) {
 	c.done <- true
 	close(c.done)
+
+	if c.onStop != nil {
+		c.onStop()
+	}
 }
 
 // SendJson marshals the message object into JSON data and publishes the message.

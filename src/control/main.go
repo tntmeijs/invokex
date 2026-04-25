@@ -113,11 +113,6 @@ func main() {
 		panic(fmt.Sprintf("could not create application file upload consumer: %s", err.Error()))
 	}
 
-	createFilesystemConsumer, err := rabbitmqConnection.NewConsumer(mainCtx, createFilesystem.Name)
-	if err != nil {
-		panic(fmt.Sprintf("could not create filesystem consumer: %s", err.Error()))
-	}
-
 	applicationFileUploadPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, unpackArchive.Name)
 	if err != nil {
 		panic(fmt.Sprintf("could not create application file upload publisher: %s", err.Error()))
@@ -130,13 +125,10 @@ func main() {
 	}
 	defer applicationFileCreateFilesystemPublisher.Stop(mainCtx)
 
-	defer applicationFileUploadConsumer.Stop()
+	defer applicationFileUploadConsumer.Stop(mainCtx)
 	applicationFileUploadConsumer.Listen(mainCtx, func(ctx context.Context, msg rabbitmq.Message) rabbitmq.MessageOutcome {
 		return onFileUploadEvent(ctx, fileProcessor, applicationFileCreateFilesystemPublisher, globalConfig.Application.Upload.Output, msg)
 	})
-
-	defer createFilesystemConsumer.Stop()
-	createFilesystemConsumer.Listen(mainCtx, onCreateFilesystemEvent)
 
 	err = server.NewHttpServer().
 		RegisterRoute(server.HttpPost, "/api/v1/application", func(r server.Request) (server.Response, error) {
@@ -172,17 +164,6 @@ func onFileUploadEvent(ctx context.Context, processor application.FileUploadProc
 		return rabbitmq.MessageOutcomeDiscard
 	}
 
-	return rabbitmq.MessageOutcomeAccept
-}
-
-func onCreateFilesystemEvent(ctx context.Context, msg rabbitmq.Message) rabbitmq.MessageOutcome {
-	var event events.CreateFilesystemEvent
-	if err := msg.AsJson(&event); err != nil {
-		fmt.Printf("failed to consume create filesystem event: %s\n", err.Error())
-		return rabbitmq.MessageOutcomeDiscard
-	}
-
-	fmt.Printf("received create file system event: %v\n", string(msg.Data))
 	return rabbitmq.MessageOutcomeAccept
 }
 
