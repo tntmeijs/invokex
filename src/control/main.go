@@ -10,8 +10,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/tntmeijs/invokex/src/configuration"
 	"github.com/tntmeijs/invokex/src/control/application"
-	"github.com/tntmeijs/invokex/src/control/config"
 	"github.com/tntmeijs/invokex/src/control/events"
 	"github.com/tntmeijs/invokex/src/control/firecracker"
 	"github.com/tntmeijs/invokex/src/control/server"
@@ -99,7 +99,7 @@ func main() {
 
 	firecrackerManager := MustGetDependency[firecracker.FirecrackerManager](ctrl)
 	rabbitmqInstance := MustGetDependency[rabbitmq.Instance](ctrl)
-	globalConfig := MustGetDependency[config.Config](ctrl)
+	globalConfig := MustGetDependency[configuration.Configuration](ctrl)
 	fileProcessor := MustGetDependency[application.FileUploadProcessor](ctrl)
 
 	firecrackerManager.RegisterVmConfig(firecracker.NewGolangConfig(firecracker.LogLevelDebug))
@@ -197,7 +197,7 @@ func onCreateFilesystemEvent(ctx context.Context, msg rabbitmq.Message) rabbitmq
 	return rabbitmq.MessageOutcomeAccept
 }
 
-func uploadApplication(config config.Config, publisher rabbitmq.Publisher, r server.Request) (server.Response, error) {
+func uploadApplication(config configuration.Configuration, publisher rabbitmq.Publisher, r server.Request) (server.Response, error) {
 	if contentType := r.Raw.Header.Get("Content-Type"); !strings.Contains(contentType, "multipart/form-data") {
 		if len(contentType) == 0 {
 			contentType = "unknown"

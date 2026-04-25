@@ -1,8 +1,8 @@
 package main
 
 import (
+	"github.com/tntmeijs/invokex/src/configuration"
 	"github.com/tntmeijs/invokex/src/control/application"
-	"github.com/tntmeijs/invokex/src/control/config"
 	"github.com/tntmeijs/invokex/src/control/firecracker"
 	"github.com/tntmeijs/invokex/src/pubsub/rabbitmq"
 )
@@ -15,12 +15,12 @@ var dependencyProviderFuncs = []any{
 	provideFileUploadProcessor,
 }
 
-func provideGlobalConfig() (config.Config, error) {
-	cfg := config.MustLoadFromArgs()
+func provideGlobalConfig() (configuration.Configuration, error) {
+	cfg := configuration.MustLoadFromArgs()
 	return cfg, cfg.CreateDirectories()
 }
 
-func provideFirecrackerConfig(c config.Config) firecracker.FirecrackerConfig {
+func provideFirecrackerConfig(c configuration.Configuration) firecracker.FirecrackerConfig {
 	return firecracker.FirecrackerConfig{
 		FirecrackerPath:     c.Firecracker.Instance.Path,
 		KernelImagePath:     c.Firecracker.Kernel.Path,
@@ -36,7 +36,7 @@ func provideFirecrackerManager(c firecracker.FirecrackerConfig) firecracker.Fire
 	return firecracker.NewManager(c)
 }
 
-func provideRabbitMqInstance(c config.Config) rabbitmq.Instance {
+func provideRabbitMqInstance(c configuration.Configuration) rabbitmq.Instance {
 	return rabbitmq.NewInstance(c.MessageBroker.Username, c.MessageBroker.Password, c.MessageBroker.Host)
 }
 

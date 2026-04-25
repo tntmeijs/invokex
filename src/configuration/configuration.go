@@ -1,4 +1,4 @@
-package config
+package configuration
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 )
 
 type (
-	Config struct {
+	Configuration struct {
 		MessageBroker MessageBroker `json:"messagebroker"`
 		Application   Application   `json:"application"`
 		Firecracker   Firecracker   `json:"firecracker"`
@@ -50,8 +50,8 @@ type (
 )
 
 // Load attempts to load the configuration file from disk.
-func Load(path string) (Config, error) {
-	var c Config
+func Load(path string) (Configuration, error) {
+	var c Configuration
 
 	bytes, err := os.ReadFile(path)
 	if err != nil {
@@ -69,9 +69,9 @@ func Load(path string) (Config, error) {
 }
 
 // MustLoadFromArgs attempts to load a configuration file from disk using the path provided by the --config=<path> flag.
-func MustLoadFromArgs() Config {
+func MustLoadFromArgs() Configuration {
 	var configPath string
-	flag.StringVar(&configPath, "config", "./invokex.json", "path to the invokex configuration file")
+	flag.StringVar(&configPath, "invokex-config", "./invokex.json", "path to the invokex configuration file")
 	flag.Parse()
 
 	config, err := Load(configPath)
@@ -83,7 +83,7 @@ func MustLoadFromArgs() Config {
 }
 
 // CreateDirectories ensures that the directories specified in the configuration are actually present on disk.
-func (c Config) CreateDirectories() error {
+func (c Configuration) CreateDirectories() error {
 	var errs error
 	errors.Join(errs, os.MkdirAll(c.Application.Upload.Directory, 0744))
 	errors.Join(errs, os.MkdirAll(c.Application.Upload.Output, 0744))
