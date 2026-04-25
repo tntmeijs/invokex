@@ -12,6 +12,7 @@ import (
 
 	"github.com/tntmeijs/invokex/src/control/application"
 	"github.com/tntmeijs/invokex/src/control/config"
+	"github.com/tntmeijs/invokex/src/control/events"
 	"github.com/tntmeijs/invokex/src/control/firecracker"
 	"github.com/tntmeijs/invokex/src/control/server"
 	"github.com/tntmeijs/invokex/src/pubsub/rabbitmq"
@@ -19,19 +20,8 @@ import (
 )
 
 type (
-	filesystem string
-
 	uploadApplicationResponseBody struct {
 		Id string `json:"id"`
-	}
-
-	unpackArchiveEvent struct {
-		Path string `json:"path"`
-	}
-
-	createFilesystemEvent struct {
-		Type filesystem `json:"type"`
-		Root string     `json:"root"`
 	}
 
 	messageResponseBody struct {
@@ -55,8 +45,6 @@ const (
 	queueNameCreateFilesystem string = "user.application.archive.filesystem"
 
 	applicationFileExtension string = "zip"
-
-	filesystemExt4 filesystem = "ext4"
 
 	kilobyte           int64 = 1024
 	megabyte           int64 = kilobyte * kilobyte
@@ -175,13 +163,13 @@ func main() {
 }
 
 func onFileUploadEvent(ctx context.Context, processor application.FileUploadProcessor, createFilesystemPublisher rabbitmq.Publisher, outputDirectory string, msg rabbitmq.Message) rabbitmq.MessageOutcome {
-	var event unpackArchiveEvent
+	var event events.UnpackArchiveEvent
 	if err := msg.AsJson(&event); err != nil {
 		fmt.Printf("failed to consume file upload event: %s\n", err.Error())
 		return rabbitmq.MessageOutcomeDiscard
 	}
 
-	output, err := processor.UnpackArchive(event.Path, outputDirectory)
+	archiveRoot, err := processor.UnpackArchive(event.Path, outputDirectory)
 
 	if err != nil {
 		fmt.Printf("failed to unpack archive: %v\n", err)
@@ -190,7 +178,7 @@ func onFileUploadEvent(ctx context.Context, processor application.FileUploadProc
 
 	fmt.Printf("processed file upload successfully: %s\n", event.Path)
 
-	if err = createFilesystemPublisher.SendJson(ctx, createFilesystemEvent{Type: filesystemExt4, Root: output}); err != nil {
+	if err = createFilesystemPublisher.SendJson(ctx, events.CreateFilesystemEvent{Type: "ext4", FileSystemRoot: archiveRoot}); err != nil {
 		fmt.Printf("unpacking was successful but could not publish create filesystem event: %s\n", err.Error())
 		return rabbitmq.MessageOutcomeDiscard
 	}
@@ -199,7 +187,7 @@ func onFileUploadEvent(ctx context.Context, processor application.FileUploadProc
 }
 
 func onCreateFilesystemEvent(ctx context.Context, msg rabbitmq.Message) rabbitmq.MessageOutcome {
-	var event createFilesystemEvent
+	var event events.CreateFilesystemEvent
 	if err := msg.AsJson(&event); err != nil {
 		fmt.Printf("failed to consume create filesystem event: %s\n", err.Error())
 		return rabbitmq.MessageOutcomeDiscard
@@ -274,7 +262,7 @@ func uploadApplication(config config.Config, publisher rabbitmq.Publisher, r ser
 
 	fmt.Printf("user has uploaded application %s for runtime %s\n", applicationId, runtime)
 
-	if err = publisher.SendJson(r.Raw.Context(), unpackArchiveEvent{Path: outFile}); err != nil {
+	if err = publisher.SendJson(r.Raw.Context(), events.UnpackArchiveEvent{Path: outFile}); err != nil {
 		return server.ReturnError(fmt.Errorf("failed to send file upload event: %w", err))
 	}
 
