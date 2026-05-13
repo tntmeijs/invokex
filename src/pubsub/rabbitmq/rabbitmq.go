@@ -65,20 +65,19 @@ func (i *Instance) Connect(ctx context.Context, queues map[string]configuration.
 	}
 
 	var options []connectionOption
-	for _, details := range queues {
-		options = append(options, withClassicQueue(details.Name))
+	for queueName := range queues {
+		options = append(options, withClassicQueue(queueName))
 	}
 
-	for _, details := range exchanges {
-		options = append(options, withTopicExchange(details.Name))
+	for exchangeName, details := range exchanges {
+		options = append(options, withTopicExchange(exchangeName))
 
-		for _, binding := range details.Bindings {
-			queue, exists := queues[binding.QueueId]
-			if !exists {
-				return Connection{}, fmt.Errorf(`no queue declared for queue id "%s"`, binding.QueueId)
+		for queueName, binding := range details.Bindings {
+			if _, exists := queues[queueName]; !exists {
+				return Connection{}, fmt.Errorf(`no queue declared for queue id "%s"`, queueName)
 			}
 
-			options = append(options, withExchangeToQueueBinding(details.Name, queue.Name, binding.BindingKey))
+			options = append(options, withExchangeToQueueBinding(exchangeName, queueName, binding.BindingKey))
 		}
 	}
 

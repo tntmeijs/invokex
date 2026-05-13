@@ -4,26 +4,19 @@
         "username": "invokex",
         "password": "admin",
         "queues": {
-            "unpack_archive": {
-                "name": "user.application.archive.unpack"
-            },
-            "create_filesystem": {
-                "name": "user.application.archive.filesystem"
-            }
+            "user.application.archive.unpack": {},
+            "user.application.archive.filesystem": {}
         },
         "exchanges": {
-            "application": {
-                "name": "invokex.user.application",
-                "bindings": [
-                    {
-                        "id": "unpack_archive",
+            "invokex.user.application": {
+                "bindings": {
+                    "user.application.archive.unpack": {
                         "key": "user.application.archive.unpack"
                     },
-                    {
-                        "id": "create_filesystem",
+                    "user.application.archive.filesystem": {
                         "key": "user.application.archive.filesystem"
                     }
-                ]
+                }
             }
         }
     },

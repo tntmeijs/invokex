@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/tntmeijs/invokex/src/configuration"
-	"github.com/tntmeijs/invokex/src/control/application"
 	"github.com/tntmeijs/invokex/src/control/firecracker"
 	"github.com/tntmeijs/invokex/src/pubsub/rabbitmq"
 )
@@ -12,7 +11,6 @@ var dependencyProviderFuncs = []any{
 	provideFirecrackerConfig,
 	provideFirecrackerManager,
 	provideRabbitMqInstance,
-	provideFileUploadProcessor,
 }
 
 func provideGlobalConfig() (configuration.Configuration, error) {
@@ -38,8 +36,4 @@ func provideFirecrackerManager(c firecracker.FirecrackerConfig) firecracker.Fire
 
 func provideRabbitMqInstance(c configuration.Configuration) rabbitmq.Instance {
 	return rabbitmq.NewInstance("control plane", c.MessageBroker.Username, c.MessageBroker.Password, c.MessageBroker.Host)
-}
-
-func provideFileUploadProcessor() application.FileUploadProcessor {
-	return application.NewFileUploadProcessor()
 }

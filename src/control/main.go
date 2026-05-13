@@ -42,6 +42,9 @@ const (
 	kilobyte           int64 = 1024
 	megabyte           int64 = kilobyte * kilobyte
 	maxApplicationSize int64 = 50 * megabyte
+
+	applicationExchangeName string = "invokex.user.application"
+	unpackArchiveQueueName  string = "user.application.archive.unpack"
 )
 
 var supportedRuntimes = []firecracker.Runtime{
@@ -93,7 +96,6 @@ func main() {
 	firecrackerManager := MustGetDependency[firecracker.FirecrackerManager](ctrl)
 	rabbitmqInstance := MustGetDependency[rabbitmq.Instance](ctrl)
 	globalConfig := MustGetDependency[configuration.Configuration](ctrl)
-	fileProcessor := MustGetDependency[application.FileUploadProcessor](ctrl)
 
 	firecrackerManager.RegisterVmConfig(firecracker.NewGolangConfig(firecracker.LogLevelDebug))
 	firecrackerManager.RegisterVmConfig(firecracker.NewNodeConfig(25, firecracker.LogLevelDebug))
@@ -105,30 +107,15 @@ func main() {
 		panic(fmt.Sprintf("could not establish a connection with rabbitmq: %s", err.Error()))
 	}
 
-	unpackArchive := globalConfig.MessageBroker.MustGetQueueDetails("unpack_archive")
-	createFilesystem := globalConfig.MessageBroker.MustGetQueueDetails("create_filesystem")
+	// TODO: build a better configuration abstraction for RabbitMQ - this is not user friendly...
+	userApplicationExchange := globalConfig.MessageBroker.MustGetExchangeDetails(applicationExchangeName)
+	bindingKey := userApplicationExchange.Bindings[unpackArchiveQueueName].BindingKey
 
-	applicationFileUploadConsumer, err := rabbitmqConnection.NewConsumer(mainCtx, unpackArchive.Name)
-	if err != nil {
-		panic(fmt.Sprintf("could not create application file upload consumer: %s", err.Error()))
-	}
-
-	applicationFileUploadPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, unpackArchive.Name)
+	applicationFileUploadPublisher, err := rabbitmqConnection.NewExchangePublisher(mainCtx, applicationExchangeName, bindingKey)
 	if err != nil {
 		panic(fmt.Sprintf("could not create application file upload publisher: %s", err.Error()))
 	}
 	defer applicationFileUploadPublisher.Stop(mainCtx)
-
-	applicationFileCreateFilesystemPublisher, err := rabbitmqConnection.NewQueuePublisher(mainCtx, createFilesystem.Name)
-	if err != nil {
-		panic(fmt.Sprintf("could not create application ext4 filesystem publisher: %s", err.Error()))
-	}
-	defer applicationFileCreateFilesystemPublisher.Stop(mainCtx)
-
-	closeConsumer := applicationFileUploadConsumer.Listen(mainCtx, func(ctx context.Context, msg rabbitmq.Message) rabbitmq.MessageOutcome {
-		return onFileUploadEvent(ctx, fileProcessor, applicationFileCreateFilesystemPublisher, globalConfig.Application.Upload.Output, msg)
-	})
-	defer closeConsumer()
 
 	err = server.NewHttpServer().
 		RegisterRoute(server.HttpPost, "/api/v1/application", func(r server.Request) (server.Response, error) {
@@ -141,30 +128,6 @@ func main() {
 	if err != nil {
 		panic(fmt.Sprintf("server has closed: %s", err.Error()))
 	}
-}
-
-func onFileUploadEvent(ctx context.Context, processor application.FileUploadProcessor, createFilesystemPublisher rabbitmq.Publisher, outputDirectory string, msg rabbitmq.Message) rabbitmq.MessageOutcome {
-	var event events.UnpackArchiveEvent
-	if err := msg.AsJson(&event); err != nil {
-		fmt.Printf("failed to consume file upload event: %s\n", err.Error())
-		return rabbitmq.MessageOutcomeDiscard
-	}
-
-	archiveRoot, err := processor.UnpackArchive(event.Path, outputDirectory)
-
-	if err != nil {
-		fmt.Printf("failed to unpack archive: %v\n", err)
-		return rabbitmq.MessageOutcomeDiscard
-	}
-
-	fmt.Printf("processed file upload successfully: %s\n", event.Path)
-
-	if err = createFilesystemPublisher.SendJson(ctx, events.CreateFilesystemEvent{Type: "ext4", FileSystemRoot: archiveRoot}); err != nil {
-		fmt.Printf("unpacking was successful but could not publish create filesystem event: %s\n", err.Error())
-		return rabbitmq.MessageOutcomeDiscard
-	}
-
-	return rabbitmq.MessageOutcomeAccept
 }
 
 func uploadApplication(config configuration.Configuration, publisher rabbitmq.Publisher, r server.Request) (server.Response, error) {

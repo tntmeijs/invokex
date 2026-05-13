@@ -8,6 +8,12 @@ import (
 	"github.com/tntmeijs/invokex/src/pubsub/rabbitmq"
 )
 
+const (
+	applicationExchangeName   string = "invokex.user.application"
+	createFilesystemQueueName string = "user.application.archive.filesystem"
+	unpackArchiveQueueName    string = "user.application.archive.unpack"
+)
+
 // TODO: wrap application with a signal listener so we can clean up when we receive SIGTERM.
 func main() {
 	exit := make(chan bool)
@@ -22,17 +28,36 @@ func main() {
 		panic(fmt.Sprintf("could not establish a connection with rabbitmq: %s", err.Error()))
 	}
 
-	createFilesystemQueue := config.MessageBroker.MustGetQueueDetails("create_filesystem")
-	consumer, err := connection.NewConsumer(mainCtx, createFilesystemQueue.Name, func() { exit <- true })
+	// TODO: build a better configuration abstraction for RabbitMQ - this is not user friendly...
+	userApplicationExchange := config.MessageBroker.MustGetExchangeDetails(applicationExchangeName)
+	bindingKey := userApplicationExchange.Bindings[createFilesystemQueueName].BindingKey
+
+	filesystemPublisher, err := connection.NewExchangePublisher(mainCtx, applicationExchangeName, bindingKey)
 	if err != nil {
-		panic(fmt.Sprintf("could not create a consumer: %s", err.Error()))
+		panic(fmt.Sprintf("could not create application ext4 filesystem publisher: %s", err.Error()))
+	}
+	defer filesystemPublisher.Stop(mainCtx)
+
+	unpackArchiveConsumer, err := connection.NewConsumer(mainCtx, unpackArchiveQueueName)
+	if err != nil {
+		panic(fmt.Sprintf("could not create unpack archive consumer: %v", err.Error()))
 	}
 
-	closeConsumer := consumer.Listen(mainCtx, func(ctx context.Context, m rabbitmq.Message) rabbitmq.MessageOutcome {
-		fmt.Println("processor received a message from the filesystem queue")
-		return rabbitmq.MessageOutcomeAccept
-	})
-	defer closeConsumer()
+	archiveUnpacker := NewArchiveUnpacker(config.Application.Upload.Output, filesystemPublisher)
+	closeUnpackArchiveConsumer := unpackArchiveConsumer.Listen(mainCtx, archiveUnpacker.onEvent)
+	defer closeUnpackArchiveConsumer()
+
+	// createFilesystemQueue := config.MessageBroker.MustGetQueueDetails("create_filesystem")
+	// createFilesystemConsumer, err := connection.NewConsumer(mainCtx, createFilesystemQueue.Name, func() { exit <- true })
+	// if err != nil {
+	// 	panic(fmt.Sprintf("could not create filesystem consumer: %v", err.Error()))
+	// }
+
+	// closeFilesystemConsumer := createFilesystemConsumer.Listen(mainCtx, func(ctx context.Context, m rabbitmq.Message) rabbitmq.MessageOutcome {
+	// 	fmt.Println("processor received a message from the filesystem queue")
+	// 	return rabbitmq.MessageOutcomeAccept
+	// })
+	// defer closeFilesystemConsumer()
 
 	fmt.Println("processor running")
 

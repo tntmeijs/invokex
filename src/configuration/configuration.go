@@ -51,16 +51,13 @@ type (
 	}
 
 	QueueDetails struct {
-		Name string `json:"name"`
 	}
 
 	ExchangeDetails struct {
-		Name     string            `json:"name"`
-		Bindings []ExchangeBinding `json:"bindings"`
+		Bindings map[string]ExchangeBinding `json:"bindings"`
 	}
 
 	ExchangeBinding struct {
-		QueueId    string `json:"id"`
 		BindingKey string `json:"key"`
 	}
 )
