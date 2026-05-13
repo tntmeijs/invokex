@@ -5,12 +5,32 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Launch Control Plane",
+            "name": "Control Plane",
             "type": "go",
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceRoot}/src/control",
-            "args": ["--invokex-config", "${workspaceRoot}/invokex.json"]
+            "args": ["--invokex-config", "${workspaceRoot}/invokex.json"],
+            "cwd": "${workspaceRoot}"
+        },
+        {
+            "name": "Processor",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceRoot}/src/processor",
+            "args": ["--invokex-config", "${workspaceRoot}/invokex.json"],
+            "cwd": "${workspaceRoot}"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "All",
+            "configurations": [
+                "Control Plane",
+                "Processor"
+            ],
+            "stopAll": true
         }
     ]
 }
