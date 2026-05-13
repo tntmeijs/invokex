@@ -24,6 +24,9 @@
         "upload": {
             "directory": ".invokex/upload",
             "output": ".invokex/output"
+        },
+        "filesystems": {
+            "directory": ".invokex/filesystems"
         }
     },
     "firecracker": {

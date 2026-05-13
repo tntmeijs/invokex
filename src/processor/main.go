@@ -47,17 +47,14 @@ func main() {
 	closeUnpackArchiveConsumer := unpackArchiveConsumer.Listen(mainCtx, archiveUnpacker.onEvent)
 	defer closeUnpackArchiveConsumer()
 
-	// createFilesystemQueue := config.MessageBroker.MustGetQueueDetails("create_filesystem")
-	// createFilesystemConsumer, err := connection.NewConsumer(mainCtx, createFilesystemQueue.Name, func() { exit <- true })
-	// if err != nil {
-	// 	panic(fmt.Sprintf("could not create filesystem consumer: %v", err.Error()))
-	// }
+	createFilesystemConsumer, err := connection.NewConsumer(mainCtx, createFilesystemQueueName)
+	if err != nil {
+		panic(fmt.Sprintf("could not create filesystem consumer: %v", err.Error()))
+	}
 
-	// closeFilesystemConsumer := createFilesystemConsumer.Listen(mainCtx, func(ctx context.Context, m rabbitmq.Message) rabbitmq.MessageOutcome {
-	// 	fmt.Println("processor received a message from the filesystem queue")
-	// 	return rabbitmq.MessageOutcomeAccept
-	// })
-	// defer closeFilesystemConsumer()
+	filesystemBuilder := NewFilesystemBuilder(config.Application.Filesystems.Directory)
+	closeCreateFilesystemConsumer := createFilesystemConsumer.Listen(mainCtx, filesystemBuilder.onEvent)
+	defer closeCreateFilesystemConsumer()
 
 	fmt.Println("processor running")
 

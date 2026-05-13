@@ -34,12 +34,17 @@ type (
 	}
 
 	Application struct {
-		Upload Upload `json:"upload"`
+		Upload      Upload      `json:"upload"`
+		Filesystems Filesystems `json:"filesystems"`
 	}
 
 	Upload struct {
 		Directory string `json:"directory"`
 		Output    string `json:"output"`
+	}
+
+	Filesystems struct {
+		Directory string `json:"directory"`
 	}
 
 	MessageBroker struct {
@@ -97,6 +102,7 @@ func (c Configuration) CreateDirectories() error {
 	var errs error
 	errors.Join(errs, os.MkdirAll(c.Application.Upload.Directory, 0744))
 	errors.Join(errs, os.MkdirAll(c.Application.Upload.Output, 0744))
+	errors.Join(errs, os.MkdirAll(c.Application.Filesystems.Directory, 0744))
 	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.ApiSockets, 0744))
 	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.FirecrackerLogs, 0744))
 	errors.Join(errs, os.MkdirAll(c.Firecracker.Directories.VmConfigurations, 0744))
