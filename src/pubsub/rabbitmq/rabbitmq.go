@@ -31,7 +31,6 @@ type (
 	// Consumer represents a consumer that processes messages from a queue.
 	Consumer struct {
 		Raw    *rabbitmqamqp.Consumer
-		done   chan bool
 		onStop OnConsumerStopped
 	}
 
@@ -114,7 +113,7 @@ func (c *Connection) NewConsumer(ctx context.Context, queue string, onStop ...On
 		return Consumer{}, fmt.Errorf("failed to create new consumer: %w", err)
 	}
 
-	consumer := Consumer{Raw: raw, done: make(chan bool)}
+	consumer := Consumer{Raw: raw}
 
 	if len(onStop) > 0 && onStop[0] != nil {
 		consumer.onStop = onStop[0]
@@ -142,50 +141,45 @@ func (c *Connection) NewQueuePublisher(ctx context.Context, queue string) (Publi
 }
 
 // Listen starts the receive loop that listens to the queue the Consumer is configured for.
-func (c *Consumer) Listen(ctx context.Context, onMessage OnMessageReceived) {
+func (c *Consumer) Listen(ctx context.Context, onMessage OnMessageReceived) context.CancelFunc {
+	consumerContext, cancelFunc := context.WithCancel(ctx)
+
 	// TODO: add logging on failures in the consumer Goroutine
 	// TODO: add better error handling in Goroutine
-	go func(consumerCtx context.Context) {
+	go func(ctx context.Context) {
 		for {
 			select {
-			case <-c.done:
-				// TODO: this is weird just use a context and cancel it - way easier to reason about
-				c.Raw.Close(consumerCtx)
+			case <-ctx.Done():
+				c.Raw.Close(ctx)
+
+				if c.onStop != nil {
+					c.onStop()
+				}
+
 				return
 			default:
-				deliveryCtx, err := c.Raw.Receive(consumerCtx)
+				deliveryCtx, err := c.Raw.Receive(ctx)
 				if err != nil {
 					if errors.Is(err, context.Canceled) {
-						c.done <- true
-						return
+						cancelFunc()
+					} else {
+						fmt.Printf("unexpected error occurred in customer listener: %s", err.Error())
 					}
-
-					// Unhandled error - send it back to the queue.
-					// TODO: see if we can include the error here somehow
-					fmt.Printf("unexpected error occurred in customer listener: %s", err.Error())
 				} else {
-					switch onMessage(consumerCtx, Message{Data: deliveryCtx.Message().GetData()}) {
+					switch onMessage(ctx, Message{Data: deliveryCtx.Message().GetData()}) {
 					case MessageOutcomeAccept:
-						deliveryCtx.Accept(consumerCtx)
+						deliveryCtx.Accept(ctx)
 					case MessageOutcomeDiscard:
-						deliveryCtx.Discard(consumerCtx, nil)
+						deliveryCtx.Discard(ctx, nil)
 					case MessageOutcomeRequeue:
-						deliveryCtx.Requeue(consumerCtx)
+						deliveryCtx.Requeue(ctx)
 					}
 				}
 			}
 		}
-	}(ctx)
-}
+	}(consumerContext)
 
-// Stop quits the message processing Goroutine.
-func (c *Consumer) Stop(ctx context.Context) {
-	c.done <- true
-	close(c.done)
-
-	if c.onStop != nil {
-		c.onStop()
-	}
+	return cancelFunc
 }
 
 // SendJson marshals the message object into JSON data and publishes the message.

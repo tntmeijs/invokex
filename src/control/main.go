@@ -125,10 +125,10 @@ func main() {
 	}
 	defer applicationFileCreateFilesystemPublisher.Stop(mainCtx)
 
-	defer applicationFileUploadConsumer.Stop(mainCtx)
-	applicationFileUploadConsumer.Listen(mainCtx, func(ctx context.Context, msg rabbitmq.Message) rabbitmq.MessageOutcome {
+	closeConsumer := applicationFileUploadConsumer.Listen(mainCtx, func(ctx context.Context, msg rabbitmq.Message) rabbitmq.MessageOutcome {
 		return onFileUploadEvent(ctx, fileProcessor, applicationFileCreateFilesystemPublisher, globalConfig.Application.Upload.Output, msg)
 	})
+	defer closeConsumer()
 
 	err = server.NewHttpServer().
 		RegisterRoute(server.HttpPost, "/api/v1/application", func(r server.Request) (server.Response, error) {

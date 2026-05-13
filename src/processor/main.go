@@ -28,11 +28,11 @@ func main() {
 		panic(fmt.Sprintf("could not create a consumer: %s", err.Error()))
 	}
 
-	defer consumer.Stop(mainCtx)
-	consumer.Listen(mainCtx, func(ctx context.Context, m rabbitmq.Message) rabbitmq.MessageOutcome {
+	closeConsumer := consumer.Listen(mainCtx, func(ctx context.Context, m rabbitmq.Message) rabbitmq.MessageOutcome {
 		fmt.Println("processor received a message from the filesystem queue")
 		return rabbitmq.MessageOutcomeAccept
 	})
+	defer closeConsumer()
 
 	fmt.Println("processor running")
 
