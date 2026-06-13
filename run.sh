@@ -11,12 +11,8 @@ then
 fi
 
 # Kill all processes whose parent PID is the current PID of the script sending SIGINT.
-# https://stackoverflow.com/a/35660327
-trap terminate SIGINT
-terminate(){
-    pkill -SIGINT -P $$
-    exit
-}
+# https://stackoverflow.com/a/61765078
+trap 'kill -- -$$' EXIT
 
 runtime="$1"
 architecture="$(uname -m)"
